@@ -1,0 +1,24 @@
+[versions]
+paper = "26.3.build.244-stable"
+postgresql = "42.7.14"
+hikari = "7.1.0"
+flyway = "13.12.1"
+junit = "5.14.4"
+embedded-postgres = "2.2.2"
+postgres-binaries = "18.6.0"
+shadow = "9.6.1"
+
+[libraries]
+paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+embedded-postgres = { module = "io.zonky.test:embedded-postgres", version.ref = "embedded-postgres" }
+postgres-binaries-bom = { module = "io.zonky.test.postgres:embedded-postgres-binaries-bom", version.ref = "postgres-binaries" }
+
+[plugins]
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

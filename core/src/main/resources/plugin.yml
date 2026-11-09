@@ -1,0 +1,17 @@
+name: ClubCore
+version: '${version}'
+main: com.inpuzah.club.core.ClubCorePlugin
+api-version: '26.3'
+description: Core player identity and persistence services
+author: Inpuzah
+
+commands:
+  profile:
+    description: Display your Club profile
+    usage: /profile
+    permission: club.profile.view
+
+permissions:
+  club.profile.view:
+    description: View your profile
+    default: true

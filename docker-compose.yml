@@ -1,0 +1,19 @@
+# Local development database. Usage: copy .env.example to .env, fill in passwords, then `docker compose up -d`.
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: club_dev
+      POSTGRES_USER: club_admin
+      POSTGRES_PASSWORD: ${CLUB_DB_ADMIN_PASSWORD:?Set CLUB_DB_ADMIN_PASSWORD in .env}
+      CLUB_DB_PASSWORD: ${CLUB_DB_PASSWORD:?Set CLUB_DB_PASSWORD in .env}
+    ports:
+      # Bound to localhost only; never expose PostgreSQL publicly.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - club-postgres:/var/lib/postgresql
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  club-postgres:

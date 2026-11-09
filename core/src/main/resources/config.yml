@@ -1,0 +1,27 @@
+# ClubCore configuration.
+# Set the password in your server's runtime config or CLUB_DB_PASSWORD.
+# Never commit real credentials. A non-empty environment variable takes priority.
+
+database:
+  # PostgreSQL host. Keep the database on localhost or a private network.
+  host: "127.0.0.1"
+  # 1-65535
+  port: 5432
+  # Database name, e.g. club_dev, club_stage, club_prod.
+  name: "club_dev"
+  # Least-privilege application role.
+  username: "club_app"
+  # Used when CLUB_DB_PASSWORD is unset or empty. Keep the bundled sample empty.
+  password: ""
+  # One of: disable, allow, prefer, require, verify-ca, verify-full
+  ssl-mode: "prefer"
+  # Maximum pooled connections (1-20). 3-5 is plenty for one small server.
+  pool-size: 4
+  # How long to wait for a free connection before failing (250-60000 ms).
+  connection-timeout-ms: 5000
+
+profile:
+  # Profile loads that take longer than this are marked unavailable (1000-60000 ms).
+  load-timeout-ms: 10000
+  # Send the player a short message once their profile is loaded.
+  show-ready-message: false
