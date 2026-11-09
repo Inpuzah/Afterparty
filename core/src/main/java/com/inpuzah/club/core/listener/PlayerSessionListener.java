@@ -4,6 +4,7 @@ import com.inpuzah.club.core.config.ProfileConfig;
 import com.inpuzah.club.core.model.PlayerProfile;
 import com.inpuzah.club.core.repository.ProfileStorageException;
 import com.inpuzah.club.core.service.ProfileService;
+import com.inpuzah.club.core.service.ProfileRefreshService;
 import com.inpuzah.club.core.service.ProfileServiceClosedException;
 import com.inpuzah.club.core.session.ProfileSession;
 import com.inpuzah.club.core.session.ProfileSessionManager;
@@ -41,15 +42,18 @@ public final class PlayerSessionListener implements Listener {
     private final ProfileSessionManager sessions;
     private final ProfileConfig config;
     private final Executor mainThread;
+    private final ProfileRefreshService refreshes;
 
     public PlayerSessionListener(Server server, Logger logger, ProfileService profiles,
-                                 ProfileSessionManager sessions, ProfileConfig config, Executor mainThread) {
+                                 ProfileSessionManager sessions, ProfileConfig config, Executor mainThread,
+                                 ProfileRefreshService refreshes) {
         this.server = server;
         this.logger = logger;
         this.profiles = profiles;
         this.sessions = sessions;
         this.config = config;
         this.mainThread = mainThread;
+        this.refreshes = refreshes;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -89,6 +93,9 @@ public final class PlayerSessionListener implements Listener {
 
     private void onLoaded(ProfileSession session, PlayerProfile profile) {
         if (!sessions.markReady(session.uuid(), session.token(), profile)) {
+            // A mutation may have invalidated the initial join read before its upsert committed.
+            sessions.get(session.uuid()).filter(current -> current.token() == session.token())
+                    .ifPresent(current -> refreshes.refresh(session.uuid()));
             logger.debug("Dropped stale profile result for {} (session {})", session.uuid(), session.token());
             return;
         }

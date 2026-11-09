@@ -8,7 +8,7 @@ import java.util.function.Function;
 /**
  * Reads and validates {@code config.yml}. Environment credentials take precedence.
  */
-public record ClubCoreConfig(DatabaseConfig database, ProfileConfig profile) {
+public record ClubCoreConfig(DatabaseConfig database, ProfileConfig profile, AdminCommandConfig adminCommands) {
 
     public static final String PASSWORD_ENV = "CLUB_DB_PASSWORD";
 
@@ -43,7 +43,20 @@ public record ClubCoreConfig(DatabaseConfig database, ProfileConfig profile) {
                 Duration.ofMillis(integer(profile, "load-timeout-ms")),
                 bool(profile, "show-ready-message"));
 
-        return new ClubCoreConfig(database, profileConfig);
+        return new ClubCoreConfig(database, profileConfig, new AdminCommandConfig(
+                optionalLimit(root, "admin-commands.max-xp"),
+                optionalLimit(root, "admin-commands.max-coins")));
+    }
+
+    private static long optionalLimit(ConfigurationSection root, String path) {
+        Object value = root.get(path);
+        if (value == null) {
+            return 0;
+        }
+        if (!(value instanceof Integer) && !(value instanceof Long)) {
+            throw new ConfigException(path + " must be a nonnegative whole number (0 means unlimited)");
+        }
+        return ((Number) value).longValue();
     }
 
     private static ConfigurationSection section(ConfigurationSection root, String path) {

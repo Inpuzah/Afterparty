@@ -38,10 +38,22 @@ ClubCore never logs the password, and its connection URL contains no credentials
 | `database.username` | `club_app` | identifier | Least-privilege role; see [database.md](database.md). |
 | `database.password` | empty | string | Runtime-config fallback when `CLUB_DB_PASSWORD` is unset or empty. Not trimmed. |
 | `database.ssl-mode` | `prefer` | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` | Use `verify-full` when the database is on another host. |
-| `database.pool-size` | `4` | 1-20 | Also the number of profile worker threads. |
+| `database.pool-size` | `4` | 1-20 | Shared connection limit; each of the three services has this many workers. |
 | `database.connection-timeout-ms` | `5000` | 250-60000 | Also bounds how long startup waits when the database is down. |
-| `profile.load-timeout-ms` | `10000` | 1000-60000 | After this long, the session becomes `UNAVAILABLE`. |
+| `profile.load-timeout-ms` | `10000` | 1000-60000 | Bounds join/refresh reads and command response waits; does not cancel accepted JDBC mutations. |
 | `profile.show-ready-message` | `false` | `true` / `false` | Sends "Your profile is ready." on load. |
+| `admin-commands.max-xp` | `0` | 0..`Long.MAX_VALUE` | Max amount per XP grant; 0 means no command limit. |
+| `admin-commands.max-coins` | `0` | 0..`Long.MAX_VALUE` | Max amount per coin add/remove; 0 means no command limit. |
+
+Display settings are under `displays`, with defaults inherited by existing
+runtime configurations. See [displays.md](displays.md) for all settings, markup
+validation and the display-only `/clubadmin displays reload` command.
+
+Existing configurations without `admin-commands` remain valid and default to no
+per-command limit, as requested. To enable safety limits, add the section and
+restart; there is no config reload command yet. Positive whole amounts, lifetime
+XP overflow prevention, the 1-billion coin balance cap and overdraft prevention
+always apply, even when command limits are zero.
 
 ## Log reference
 
@@ -51,12 +63,14 @@ All ClubCore log lines are prefixed `[ClubCore]`. Bundled libraries log under `c
 |---|---|
 | `Database: DatabaseConfig[url=..., username=...]` | Effective settings (no password). |
 | `Schema migration complete: N migration(s) applied, schema version V` | Flyway succeeded. |
-| `Profile service ready` | Startup finished; joins will load profiles. |
+| `Profile, progression and economy services ready` | Startup finished; profiles and new commands are registered. |
 | `Invalid configuration: ...; disabling ClubCore.` | Fix `config.yml` or set `CLUB_DB_PASSWORD`. |
 | `Could not connect to or migrate the database; disabling ClubCore.` | Check host, port, credentials, `pg_hba.conf`, migration errors (stack trace follows). |
 | `Profile load for X (uuid) timed out after N ms` | Database slow or overloaded. |
 | `Profile load for X (uuid) failed: database unavailable` | Connection lost during play; stack trace follows. |
-| `N profile write(s) did not finish within 10s and were abandoned` | Shutdown with an unhealthy database; those `last_seen_at` values are stale. |
+| `Admin operation UUID: ...` | Audit correlation for accepted admin commands and their outcomes; actor is an administrator UUID or console. |
+| `Could not refresh profile ...; cache unavailable` | Committed data may exist, but `/profile` must not show an old snapshot. |
+| `N SERVICE request(s) unresolved after 10s; in-flight commits may have succeeded` | Investigate operation IDs before retrying mutations; last-seen writes remain best-effort. |
 
 ## Troubleshooting
 

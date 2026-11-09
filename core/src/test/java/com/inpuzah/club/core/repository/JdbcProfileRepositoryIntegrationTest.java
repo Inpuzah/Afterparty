@@ -61,14 +61,14 @@ class JdbcProfileRepositoryIntegrationTest {
 
     @BeforeEach
     void cleanTable() throws SQLException {
-        execute("TRUNCATE player_profiles");
+        execute("TRUNCATE display_preferences, currency_transactions, experience_awards, player_profiles");
         repository = new JdbcProfileRepository(dataSource);
     }
 
     @Test
     void migrationsApplyToFreshDatabaseAndAreIdempotent() {
-        assertEquals(1, initialMigration.migrationsExecuted);
-        assertEquals("1", initialMigration.targetSchemaVersion);
+        assertEquals(3, initialMigration.migrationsExecuted);
+        assertEquals("3", initialMigration.targetSchemaVersion);
 
         MigrateResult again = Migrations.apply(dataSource, getClass().getClassLoader());
         assertEquals(0, again.migrationsExecuted);

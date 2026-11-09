@@ -2,9 +2,9 @@
 
 Backend plugins for the Club Minecraft network.
 
-**Current milestone:** ClubCore v0.1.0 - Player Identity & Persistence  
+**Current milestone:** ClubCore v0.2.0 (staging validation pending) - Progression, Economy & Lobby Displays<br>
 **Target:** Paper 26.3, Java 25, Gradle Kotlin DSL, PostgreSQL  
-**Status updated:** November 7, 2026
+**Status updated:** November 9, 2026
 
 ClubCore is the foundation for future profiles, currencies, progression, settings,
 and persistent network data. Only the `core` plugin exists today; the full network
@@ -14,34 +14,56 @@ and its future systems are not implemented.
 
 | Area | Implemented |
 |---|---|
-| Plugin bootstrap | Main class, `plugin.yml`, bundled configuration, `/profile` registration. |
+| Plugin bootstrap | Main class, `plugin.yml`, configuration, profile/XP/coin service lifecycle and command registration. |
 | Player identity | Immutable UUID-keyed profile with username, first join, last seen, level, XP, and coins. |
-| Persistence | PostgreSQL JDBC repository, HikariCP connection pool, Flyway V1 migration. |
+| Persistence | PostgreSQL JDBC repositories, HikariCP connection pool, Flyway V1/V2/V3 migrations. |
+| XP backend | Atomic lifetime XP awards, level-100 cap, ledger, idempotent retries and admin grants. |
+| Coins backend | Atomic credits/debits, 1-billion balance cap, overdraft checks, ledger and admin commands. |
+| Lobby displays | Animated bossbar/sidebar, cached placeholders, persistent visibility flags and validated admin reload. |
 | Join/quit lifecycle | Async profile creation/loading on join and last-seen updates on quit. |
-| Session state | `LOADING`, `READY`, `UNAVAILABLE`, and `CLOSED`, with tokens to reject stale callbacks. |
+| Session state | `LOADING`, `READY`, `UNAVAILABLE`, and `CLOSED`, with login tokens and refresh revisions to reject stale callbacks. |
 | Profile service | Async API, duplicate-load coalescing, bounded worker queue, load timeouts. |
 | Failure handling | Friendly player messages; invalid configuration or database/migration failure disables the plugin at startup. |
 | Packaging | Self-contained Shadow jar with relocated PostgreSQL, HikariCP, and Flyway dependencies. |
-| Tests | 40 automated tests, including 11 repository tests against real embedded PostgreSQL. |
+| Tests | 187 automated tests for profiles, XP, coins, displays, commands, cache ordering and migrations, including real embedded PostgreSQL. |
 | Operations | Local Docker Compose database, provisioning script, configuration and backup documentation. |
 | CI | GitHub Actions workflow for Java 25 build/tests and jar upload; remote execution not yet verified. |
 | Neon | CLI/project setup and environment pull completed; Java integration remains unfinished. |
 
-Level starts at **1**, experience at **0**, and coins at **0**. These are read-only
-placeholders, not implemented economy or progression systems. Username changes
-do not reset UUID identity, first-join date, or progression fields.
+Level starts at **1**, experience at **0**, and coins at **0**. Admin commands can
+now update progression and currency; ordinary activity rewards are not implemented.
+Username changes do not reset UUID identity, first-join date, or progression fields.
 
 ## Commands
 
 | Command | Permission | Behavior |
 |---|---|---|
 | `/profile` | `club.profile.view` (default: everyone) | Shows your own name, level, XP, coins, and first-join date in chat. |
+| `/balance` | `club.balance.view` (default: everyone) | Player-only, asynchronous saved Club Coins balance. |
+| `/clubadmin xp add <online-player\|uuid> <amount> [reason]` | `club.admin.xp` (default: op) | Grant lifetime XP to an existing profile. |
+| `/clubadmin coins add <online-player\|uuid> <amount> [reason]` | `club.admin.coins` (default: op) | Credit Club Coins up to the balance cap. |
+| `/clubadmin coins remove <online-player\|uuid> <amount> [reason]` | `club.admin.coins` (default: op) | Debit Club Coins without overdrawing. |
+| `/display status` | `club.display` (default: everyone) | Show saved display preferences and server enable flags. |
+| `/display bossbar on\|off` | `club.display` (default: everyone) | Persist your bossbar visibility. |
+| `/display scoreboard on\|off` | `club.display` (default: everyone) | Persist your sidebar visibility. |
+| `/clubadmin displays reload` | `club.admin.displays` (default: op) | Validate/reload display settings without changing database settings. |
 
-- Players only; console receives a helpful message.
+- `/profile` is players only; console receives a helpful message.
 - Extra arguments show `Usage: /profile`; lookup of other players is not supported.
 - During loading: "Your profile is still loading. Try again shortly."
 - During failure: "Profiles are temporarily unavailable."
 - The command reads cached session state and never queries the database directly.
+- Admin commands support console, accept online names or persisted full UUIDs,
+  and log a new operation ID with actor/reason metadata for each invocation.
+- Admin amounts have **no per-command limit by default**, as requested. Optional
+  `admin-commands.max-xp` / `max-coins` limits use 0 for unlimited; amounts must
+  still be positive whole numbers, and domain cap/overflow/overdraft rules apply.
+- Replies follow the database result on the server thread. Online profile caches
+  refresh after success; `/profile` shows loading/unavailable instead of old data.
+- A timeout may hide a committed operation. Check its logged ID before repeating
+  an admin command, because each invocation generates a new ID.
+- Displays use one shared animation task and cached profile data. ClubCore owns
+  the lobby sidebar; future games can explicitly suppress it before taking ownership.
 
 ## Project layout
 
@@ -49,18 +71,23 @@ do not reset UUID identity, first-join date, or progression fields.
 core/
   src/main/java/com/inpuzah/club/core/
     ClubCorePlugin.java
-    command/       Chat-based /profile command
+    command/       Profile, balance and permission-controlled admin commands
     config/        Startup validation and secret lookup
+    display/       Shared animation, sidebar/bossbar lifecycle, persistent preferences
     listener/      Player join/quit events
     model/         Immutable profile snapshot
+    economy/       Atomic coin repository and async service
     persistence/   Connection pool and migrations
+    progression/   Level calculation, XP repository and async service
     repository/    Blocking JDBC operations, no Bukkit types
-    service/       Async profile API
-    session/       Online session states and tokens
+    service/       Async profile API, revision-safe refreshes and bounded workers
+    session/       Online session states, login tokens and read revisions
   src/main/resources/
     plugin.yml
     config.yml
     db/migration/V1__create_player_profiles.sql
+    db/migration/V2__progression_and_economy.sql
+    db/migration/V3__display_preferences.sql
   src/test/java/   Unit and PostgreSQL integration tests
 docs/             Architecture, database, configuration, testing, decisions
 docker/           Local database initialization
@@ -71,6 +98,30 @@ neon.ts           Neon infrastructure configuration, not a plugin runtime
 
 Only `core` is included in the Gradle build. New modules should be added when they
 have real implementations.
+
+### v0.2 work in progress
+
+The `feat/lobby-displays` review branch includes the unmerged progression/economy
+and display work together, starting from the v0.1 foundation. It adds the
+**V2 coin/XP ledger schema** and
+**atomic XP and coin backend APIs**, with migration, concurrency, replay and
+rollback tests. Levels cap at 100 while lifetime XP continues accumulating.
+Coin credits enforce a **1,000,000,000-coin balance cap**; debits reject overdrafts.
+Existing V1 profile data is preserved.
+
+Both services are bootstrapped, exposed through plugin accessors and drained before
+the database closes. `/balance`, admin grants/removals and ordered cache refreshes
+are wired. The `feat/lobby-displays` slice adds animated bossbar/sidebar displays,
+V3 persistent preferences, cached placeholders and display reload.
+Activity reward hooks remain deferred.
+
+See the [v0.2 release notes](docs/release-notes-0.2.0.md) for the combined scope,
+upgrade procedure, verification evidence and outstanding acceptance checks.
+
+The plugin applies V2/V3 automatically on startup when deployed. Staging database
+confirmation, backup/restore and real-client acceptance checks remain required
+before deployment. No live database was migrated during development. See
+[progression and economy](docs/progression-and-economy.md) for details.
 
 ## Requirements and build
 
@@ -97,7 +148,7 @@ sh gradlew clean build
 sh gradlew :core:test
 ```
 
-Deployable output: **`core/build/libs/ClubCore-0.1.0.jar`**.
+Deployable output: **`core/build/libs/ClubCore-0.2.0.jar`**.
 The Shadow jar bundles the database libraries; Paper supplies its API and SLF4J.
 Dependency versions are pinned in [gradle/libs.versions.toml](gradle/libs.versions.toml),
 including Paper API `26.3.build.244-stable`.
@@ -142,7 +193,7 @@ This is a Java/Gradle application. There is currently **no `npm run build` scrip
    `CLUB_DB_PASSWORD` takes precedence. Never put real passwords in the
    repository's bundled sample configuration.
 
-6. Look for `Schema migration complete` and `Profile service ready` in the log.
+6. Look for `Schema migration complete` and `Profile, progression and economy services ready` in the log.
    Join and run `/profile`, then reconnect and verify the persisted record.
 
 Flyway runs before profile operations are enabled. Never edit an applied migration;
@@ -167,8 +218,11 @@ branch before migrating production. Never commit or paste connection strings.
 
 ## Verification so far
 
-The last recorded clean Gradle build passed with **40 tests, zero failures/errors,
-and zero skipped tests**. This README update did not rerun the build.
+The November 9 clean Gradle build passed with **187 tests, zero failures/errors,
+and zero skipped tests**, including 25 display tests, command tests and
+PostgreSQL-backed service/cache integration coverage. The shaded
+`ClubCore-0.2.0.jar` contains both backends, display services/commands and V1/V2/V3
+migrations. Live Paper rendering is not yet verified.
 
 Automated coverage includes:
 
@@ -179,12 +233,18 @@ Automated coverage includes:
 - Flyway migration idempotency, concurrent upserts without duplicate rows,
   timezone-aware timestamps, and database constraints.
 - Persistence across a PostgreSQL process restart and unreachable-database errors.
+- Atomic XP/coin writes and audit rows, cap/overdraft enforcement, concurrent
+  requests, payload conflicts, injected rollback failures and timeout-safe retries.
+- Commands, permissions, console behavior, optional limits, safe asynchronous
+  replies and token/revision-safe cache updates after real PostgreSQL commits.
+- Display configuration, animation/fallbacks, sidebar cleanup and ownership,
+  persistent toggles, reload validation and many-viewer component coverage.
 
 Earlier smoke tests used **Paper 26.3 build 244, Java 25, and PostgreSQL 18.6**:
 plugin startup, migrations with a restricted role, console `/profile`, shutdown,
 missing-password failure, and database-down startup were checked.
 
-Actual Minecraft-client join, `/profile`, reconnect, permission, and outage
+Actual Minecraft-client join, new command, reconnect, permission, and outage
 acceptance checks are still outstanding. Neon-backed plugin operation and CI on
 GitHub are also not yet verified. See the [manual test checklist](docs/testing.md).
 
@@ -195,21 +255,22 @@ GitHub are also not yet verified. See the [manual test checklist](docs/testing.m
    if necessary. Earlier diagnostics came from a failed/stale Gradle import.
 2. Wire Neon environment variables into Java, separating migration and runtime connections.
 3. Complete in-game acceptance tests on a separate server and development database.
-4. Verify CI remotely, commit/push the foundation, and prepare a staging release
+4. Verify CI remotely, commit/push the v0.2 work when ready, and prepare a staging release
    with backups and a rollback plan.
 
 Current limitations:
 
 - Single-server profile ownership only; no cross-server synchronization.
-- No automatic retry after a session becomes unavailable; profiles reload on rejoin.
+- No periodic retry after a session becomes unavailable; profiles reload on rejoin
+  or a later committed mutation.
 - Last-seen timestamps are best-effort, not exact presence records during crashes.
-- Shutdown requests a 10-second worker drain; outage-time write completion needs
+- Shutdown requests up to 10 seconds per service for worker drain; outage-time write completion needs
   further acceptance testing.
-- No economy transactions, XP awards, settings service, profile GUI, social
-  features, minigames, or web authentication.
+- No activity reward hooks, player transfers, shops, settings service, profile GUI,
+  social features, minigames, or web authentication.
 
-Future milestones cover an authoritative economy service, progression service,
-settings, and separate social/game systems. See the
+Next steps are live staging acceptance, backup/restore and remote CI verification.
+Later milestones add settings and separate social/game systems. See the
 [foundation specification](ClubCore_v0.1_Foundation_Specification.md) for the full roadmap
 and definition of done.
 
@@ -219,6 +280,9 @@ and definition of done.
 - [Database](docs/database.md): provisioning, schema migrations, backup/restore.
 - [Configuration](docs/configuration.md): settings, secrets, troubleshooting.
 - [Testing](docs/testing.md): automated coverage and manual acceptance.
+- [Progression and economy](docs/progression-and-economy.md): V2 schema status and deployment gates.
+- [Coin operations](docs/operations-economy.md): cap, retry policy and audit investigation.
+- [Lobby displays](docs/displays.md): commands, V3 preferences, configuration and sidebar ownership.
 - [Persistence decision](docs/decisions/0001-profile-persistence.md): design rationale.
 
 Package root: `com.inpuzah.club.core`. Suggested commit prefixes:
