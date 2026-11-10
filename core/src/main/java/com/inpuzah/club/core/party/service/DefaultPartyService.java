@@ -138,8 +138,8 @@ public final class DefaultPartyService implements PartyService {
                 UUID remaining = outcome.code() == PartyOutcome.Code.LEFT && before.isPresent()
                         ? before.orElseThrow().members().stream().map(member -> member.playerId())
                         .filter(id -> !id.equals(actor)).findFirst().orElse(actor) : actor;
-                var change = new PartyChange(actor, outcome, before, notificationSnapshot(remaining));
                 try {
+                    var change = new PartyChange(actor, outcome, before, notificationSnapshot(remaining));
                     listener.accept(change);
                 } catch (RuntimeException error) {
                     logger.error("Party mutation committed but member notification failed for {}", actor, error);
