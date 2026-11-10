@@ -141,6 +141,11 @@ public final class PrivacyMenuController implements Listener, AutoCloseable {
         if (slot != PrivacyMenu.REQUESTS && slot != PrivacyMenu.BACK && slot != PrivacyMenu.CLOSE) {
             return;
         }
+        if (slot == PrivacyMenu.REQUESTS && (pending.containsKey(holder.playerId)
+                || holder.state == PrivacyMenu.State.LOADING || holder.state == PrivacyMenu.State.SAVING)) {
+            message(player, "Privacy settings are loading or saving. Wait for confirmation.");
+            return;
+        }
         if (holder.actionQueued && slot == PrivacyMenu.REQUESTS) {
             return;
         }
