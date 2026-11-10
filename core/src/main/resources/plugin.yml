@@ -10,8 +10,34 @@ commands:
     description: Display your Club profile
     usage: /profile
     permission: club.profile.view
+  balance:
+    description: Display your saved Club Coins balance
+    usage: /balance
+    permission: club.balance.view
+  clubadmin:
+    description: Administer saved XP and Club Coins
+    usage: /clubadmin <xp|coins> <add|remove> <online-player|uuid> <amount> [reason]
+  display:
+    description: Manage your persistent lobby display preferences
+    usage: /display status or /display <bossbar|scoreboard> <on|off>
+    permission: club.display
 
 permissions:
   club.profile.view:
     description: View your profile
     default: true
+  club.balance.view:
+    description: View your own Club Coins balance
+    default: true
+  club.admin.xp:
+    description: Award lifetime XP to known players
+    default: op
+  club.admin.coins:
+    description: Add or remove Club Coins for known players
+    default: op
+  club.display:
+    description: Toggle your own lobby bossbar and scoreboard
+    default: true
+  club.admin.displays:
+    description: Reload validated display configuration
+    default: op

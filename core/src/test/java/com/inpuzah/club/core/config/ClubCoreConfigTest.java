@@ -30,6 +30,7 @@ class ClubCoreConfigTest {
         assertEquals(5000, config.database().connectionTimeoutMs());
         assertEquals(Duration.ofSeconds(10), config.profile().loadTimeout());
         assertFalse(config.profile().showReadyMessage());
+        assertEquals(new AdminCommandConfig(0, 0), config.adminCommands());
     }
 
     @Test
@@ -102,6 +103,19 @@ class ClubCoreConfigTest {
         assertInvalid("database.port", "5432");
         assertInvalid("profile.show-ready-message", "yes please");
         assertInvalid("database.host", "");
+        assertInvalid("admin-commands.max-xp", "unlimited");
+        assertInvalid("admin-commands.max-coins", 1.5);
+        assertInvalid("admin-commands.max-xp", -1);
+    }
+
+    @Test
+    void supportsLongAdminLimitsAndLegacyConfigWithoutLimits() throws Exception {
+        YamlConfiguration yaml = bundledConfig();
+        yaml.set("admin-commands.max-xp", Long.MAX_VALUE);
+        yaml.set("admin-commands.max-coins", 500L);
+        assertEquals(new AdminCommandConfig(Long.MAX_VALUE, 500), ClubCoreConfig.load(yaml, ENV::get).adminCommands());
+        yaml.set("admin-commands", null);
+        assertEquals(new AdminCommandConfig(0, 0), ClubCoreConfig.load(yaml, ENV::get).adminCommands());
     }
 
     @Test

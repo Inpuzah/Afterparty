@@ -25,3 +25,39 @@ profile:
   load-timeout-ms: 10000
   # Send the player a short message once their profile is loaded.
   show-ready-message: false
+
+admin-commands:
+  # Maximum amount per command, not the player's total. 0 means no command limit.
+  # The 1-billion coin balance cap, positive amounts and XP overflow checks still apply.
+  max-xp: 0
+  max-coins: 0
+
+displays:
+  enabled: true
+  server: "lobby-1"
+  bossbar:
+    enabled: true
+    update-ticks: 10
+    rotation-ticks: 100
+    color: PURPLE
+    overlay: PROGRESS
+    progress: 1.0
+    messages:
+      - "<light_purple><bold>AFTERPARTY</bold></light_purple>"
+      - "<aqua>Welcome to the party, {username}!</aqua>"
+      - "<yellow>Bring your friends!</yellow>"
+  scoreboard:
+    enabled: true
+    title-animation-ticks: 10
+    stats-refresh-ticks: 20
+    title-frames:
+      - "<light_purple><bold>AFTERPARTY</bold></light_purple>"
+      - "<aqua><bold>AFTERPARTY</bold></aqua>"
+    lines:
+      - "<gray>YOUR PROFILE</gray>"
+      - "<white>Level: <yellow>{level}</yellow></white>"
+      - "<white>Coins: <gold>{coins}</gold></white>"
+      - " "
+      - "<white>Online: <green>{online}</green></white>"
+      - "<white>Server: <aqua>{server}</aqua></white>"
+      - "<light_purple>AFTERPARTY</light_purple>"

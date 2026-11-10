@@ -50,6 +50,15 @@ Network rules:
 
 ## Schema (V1)
 
+V1 is unchanged. V2 adds `currency_transactions` and `experience_awards` audit
+tables without altering existing profile rows. See
+[progression and economy](progression-and-economy.md) for transactional services,
+commands, test coverage and deployment gates. V3 adds `display_preferences`
+(`player_uuid` primary/foreign key, `show_bossbar`, `show_scoreboard`, `updated_at`).
+Flags default to true; changes are asynchronous and independent. This display
+slice does not modify V1/V2, XP, coins or audit rows. Back up before deploying the
+jar: all three migrations run automatically. See [displays.md](displays.md).
+
 `player_profiles`:
 
 | Column | Description |
@@ -57,7 +66,7 @@ Network rules:
 | `uuid` | Primary key and canonical identity. |
 | `username` | Last seen name; never used as a key. |
 | `first_joined_at`, `last_seen_at`, `created_at`, `updated_at` | `TIMESTAMPTZ`, set by the database (`NOW()`), displayed in UTC. |
-| `level`, `experience`, `coins` | Placeholders with `CHECK` constraints. They are read-only until their dedicated services exist; see spec §12. |
+| `level`, `experience`, `coins` | Materialized progression/currency totals with `CHECK` constraints. Dedicated transactional services update these alongside the V2 audit ledgers. |
 
 A join runs `INSERT ... ON CONFLICT (uuid) DO UPDATE`, which updates only `username`, `last_seen_at` and `updated_at`. It never resets progress or `first_joined_at`.
 
