@@ -25,8 +25,31 @@ commands:
     description: Open your persistent player settings
     usage: /settings
     permission: club.settings
+  friend:
+    description: Manage persistent friendships and requests
+    usage: /friend <add|accept|deny|cancel|remove> <player> or /friend requests [page]
+    permission: club.social.use
+  friends:
+    description: List your friends and local online status
+    usage: /friends [page]
+    permission: club.social.use
+  block:
+    description: Block an online player
+    usage: /block <online-player>
+    permission: club.social.use
+  unblock:
+    description: Unblock a player by online name or UUID
+    usage: /unblock <online-player|uuid>
+    permission: club.social.use
+  blocked:
+    description: List players you have blocked
+    usage: /blocked [page]
+    permission: club.social.use
 
 permissions:
+  club.social.use:
+    description: Manage your own friendships and blocks
+    default: true
   club.settings:
     description: Open and change your own player settings
     default: true

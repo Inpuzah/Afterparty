@@ -29,6 +29,13 @@ import com.inpuzah.club.core.session.ProfileSessionManager;
 import com.inpuzah.club.core.settings.DefaultPlayerSettingsService;
 import com.inpuzah.club.core.settings.PlayerSettingsService;
 import com.inpuzah.club.core.settings.SettingsMenuController;
+import com.inpuzah.club.core.social.SocialConfig;
+import com.inpuzah.club.core.social.command.SocialCommand;
+import com.inpuzah.club.core.social.repository.JdbcSocialRepository;
+import com.inpuzah.club.core.social.service.DefaultSocialService;
+import com.inpuzah.club.core.social.service.SocialService;
+import com.inpuzah.club.core.social.menu.PrivacyMenuController;
+import com.inpuzah.club.core.social.menu.InteractionMenuController;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
@@ -55,6 +62,9 @@ public final class ClubCorePlugin extends JavaPlugin {
     private DefaultPlayerSettingsService settingsService;
     private SettingsMenuController settingsMenus;
     private DisplayReloadService displayReloads;
+    private DefaultSocialService socialService;
+    private PrivacyMenuController privacyMenus;
+    private InteractionMenuController interactionMenus;
 
     @Override
     public void onEnable() {
@@ -64,9 +74,11 @@ public final class ClubCorePlugin extends JavaPlugin {
 
         ClubCoreConfig config;
         DisplayConfig displayConfig;
+        SocialConfig socialConfig;
         try {
             config = ClubCoreConfig.load(getConfig(), System::getenv);
             displayConfig = DisplayConfig.load(getConfig());
+            socialConfig = SocialConfig.load(getConfig());
         } catch (ConfigException e) {
             fail("Invalid configuration: " + e.getMessage(), null);
             return;
@@ -103,6 +115,8 @@ public final class ClubCorePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(listener, this);
 
         CommandFeedback feedback = new CommandFeedback(getServer(), sessions, mainThread);
+        socialService = DefaultSocialService.create(new JdbcSocialRepository(database.dataSource(), socialConfig),
+                config.database().poolSize(), PROFILE_QUEUE_CAPACITY, log);
         settingsService = new DefaultPlayerSettingsService(
                 new DisplayPreferenceService(new JdbcDisplayPreferenceRepository(database.dataSource())),
                 sessions, config.profile().loadTimeout(), log);
@@ -110,6 +124,12 @@ public final class ClubCorePlugin extends JavaPlugin {
         displays = new DisplayManager(getServer(), sessions, settingsService, displayConfig);
         settingsMenus = new SettingsMenuController(getServer(), sessions, settingsService, mainThread,
                 config.profile().loadTimeout().toMillis());
+        privacyMenus = new PrivacyMenuController(getServer(), sessions, socialService, mainThread,
+                config.profile().loadTimeout().toMillis(), log);
+        settingsMenus.privacyMenu(privacyMenus::open);
+        privacyMenus.backToSettings(player -> settingsMenus.onCommand(player, null, "settings", new String[0]));
+        interactionMenus = new InteractionMenuController(getServer(), sessions, socialService, mainThread,
+                config.profile().loadTimeout().toMillis(), log, socialConfig.interactionsEnabled());
         settingsService.observe(uuid -> {
             displays.markDirty(uuid);
             mainThread.execute(() -> settingsMenus.refresh(uuid));
@@ -117,9 +137,13 @@ public final class ClubCorePlugin extends JavaPlugin {
         sessions.observe(uuid -> {
             displays.markDirty(uuid);
             mainThread.execute(() -> settingsMenus.refresh(uuid));
+            mainThread.execute(() -> privacyMenus.refresh(uuid));
+            mainThread.execute(() -> interactionMenus.refresh(uuid));
         });
         getServer().getPluginManager().registerEvents(displays, this);
         getServer().getPluginManager().registerEvents(settingsMenus, this);
+        getServer().getPluginManager().registerEvents(privacyMenus, this);
+        getServer().getPluginManager().registerEvents(interactionMenus, this);
         DisplayCommand displayCommand = new DisplayCommand(displays, settingsService, displayReloads, feedback, log,
                 config.profile().loadTimeout().toMillis());
         if (!registerCommand("profile", new ProfileCommand(sessions))
@@ -129,6 +153,13 @@ public final class ClubCorePlugin extends JavaPlugin {
                 || !registerCommand("clubadmin", new ClubAdminCommand(getServer(), economyService, progressionService,
                         feedback, config.adminCommands(), config.profile().loadTimeout(), log, displayCommand))) {
             return;
+        }
+        for (SocialCommand.Kind kind : SocialCommand.Kind.values()) {
+            if (!registerCommand(kind.name().toLowerCase(java.util.Locale.ROOT),
+                    new SocialCommand(kind, getServer(), sessions, socialService, feedback,
+                            config.profile().loadTimeout(), log))) {
+                return;
+            }
         }
 
         // Players already online after a reload never fire PlayerJoinEvent for us.
@@ -143,6 +174,14 @@ public final class ClubCorePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         Logger log = getSLF4JLogger();
+        if (interactionMenus != null) {
+            interactionMenus.close();
+            interactionMenus = null;
+        }
+        if (privacyMenus != null) {
+            privacyMenus.close();
+            privacyMenus = null;
+        }
         if (settingsService != null) {
             settingsService.observe(uuid -> {});
         }
@@ -177,6 +216,10 @@ public final class ClubCorePlugin extends JavaPlugin {
             drain("economy", economyService::shutdown);
             economyService = null;
         }
+        if (socialService != null) {
+            drain("social", socialService::shutdown);
+            socialService = null;
+        }
         if (progressionService != null) {
             drain("progression", progressionService::shutdown);
             progressionService = null;
@@ -210,6 +253,10 @@ public final class ClubCorePlugin extends JavaPlugin {
 
     public PlayerSettingsService settingsService() {
         return settingsService;
+    }
+
+    public SocialService socialService() {
+        return socialService;
     }
 
     private boolean registerCommand(String name, TabExecutor executor) {

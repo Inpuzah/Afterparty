@@ -57,7 +57,7 @@ class JdbcProgressionRepositoryIntegrationTest {
 
     @BeforeEach
     void reset() throws SQLException {
-        execute("TRUNCATE display_preferences, currency_transactions, experience_awards, player_profiles");
+        execute("TRUNCATE friendships, friend_requests, player_blocks, social_preferences, display_preferences, currency_transactions, experience_awards, player_profiles");
         repository = new JdbcProgressionRepository(dataSource);
         playerId = UUID.randomUUID();
         insertPlayer(playerId);

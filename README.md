@@ -16,7 +16,7 @@ and its future systems are not implemented.
 |---|---|
 | Plugin bootstrap | Main class, `plugin.yml`, configuration, profile/XP/coin service lifecycle and command registration. |
 | Player identity | Immutable UUID-keyed profile with username, first join, last seen, level, XP, and coins. |
-| Persistence | PostgreSQL JDBC repositories, HikariCP connection pool, Flyway V1/V2/V3 migrations. |
+| Persistence | PostgreSQL JDBC repositories, HikariCP connection pool, Flyway V1-V3 plus V4 social tables on this development branch. |
 | XP backend | Atomic lifetime XP awards, level-100 cap, ledger, idempotent retries and admin grants. |
 | Coins backend | Atomic credits/debits, 1-billion balance cap, overdraft checks, ledger and admin commands. |
 | Lobby displays | Animated bossbar/sidebar, cached placeholders, persistent visibility flags and validated admin reload. |
@@ -26,9 +26,9 @@ and its future systems are not implemented.
 | Profile service | Async API, duplicate-load coalescing, bounded worker queue, load timeouts. |
 | Failure handling | Friendly player messages; invalid configuration or database/migration failure disables the plugin at startup. |
 | Packaging | Self-contained Shadow jar with relocated PostgreSQL, HikariCP, and Flyway dependencies. |
-| Tests | 209 automated tests for profiles, XP, coins, displays, settings, inventory interaction guards and migrations, including real embedded PostgreSQL. |
+| Tests | 291 automated tests, including social/privacy/interaction tests and real embedded PostgreSQL; the v0.3 baseline had 209. |
 | Operations | Local Docker Compose database, provisioning script, configuration and backup documentation. |
-| CI | GitHub Actions workflow for Java 25 build/tests and jar upload; remote execution not yet verified. |
+| CI | GitHub Actions workflow for Java 25 build/tests and jar upload; v0.3 passed remotely, social branch verification pending. |
 | Neon | CLI/project setup and environment pull completed; Java integration remains unfinished. |
 
 Level starts at **1**, experience at **0**, and coins at **0**. Admin commands can
@@ -49,6 +49,11 @@ Username changes do not reset UUID identity, first-join date, or progression fie
 | `/display scoreboard on\|off` | `club.display` (default: everyone) | Persist your sidebar visibility. |
 | `/settings` | `club.settings` (default: everyone) | Open your display settings menu; left/right-click to persist a toggle. |
 | `/clubadmin displays reload` | `club.admin.displays` (default: op) | Validate/reload display settings without changing database settings. |
+
+The v0.4 development branch also implements `/friend`, `/friends`, `/block`,
+`/unblock` and `/blocked` under `club.social.use` (default everyone).
+See [friends development slice](docs/social.md) for syntax, persistence and
+privacy submenu and sneak-right-click interaction GUI; these are not staging-approved features.
 
 - `/profile` is players only; console receives a helpful message.
 - Extra arguments show `Usage: /profile`; lookup of other players is not supported.
@@ -134,6 +139,21 @@ before deployment. No live database was migrated during development. See
 
 ## Requirements and build
 
+### v0.4 development branch
+
+This branch starts the friends milestone on top of merged v0.3. It adds
+transactional requests/friendships/blocks, a bounded async service, paged commands
+and V4 social tables. It does not modify V1-V3 or the existing display engine.
+The Social Privacy submenu in `/settings` now persists Everyone/Nobody request
+policy separately from display preferences. Sneak-right-click opens the player
+interaction menu with cached profile previews, friend actions and block/unblock.
+The v0.3 real-client and backup/restore gates remain open; see
+[social implementation status](docs/social.md).
+
+Local Java 25 verification passed: **291 tests, zero failures/errors/skips**.
+The development jar contains all four migrations and the five social commands;
+the existing display engine and historical migrations are unchanged.
+
 - **Java 25** to run the Paper server and compile the plugin.
 - JDK 17+ can launch Gradle; the Foojay resolver can provision the Java 25 toolchain.
 - A reachable PostgreSQL database for the plugin. Local setup and tests use PostgreSQL 18.
@@ -157,7 +177,9 @@ sh gradlew clean build
 sh gradlew :core:test
 ```
 
-Deployable output: **`core/build/libs/ClubCore-0.3.0.jar`**.
+Development output: **`core/build/libs/ClubCore-0.4.0-SNAPSHOT.jar`**.
+Starting this jar automatically applies V4. Rehearse migration and restore on
+an isolated staging database first; this is not a production-approved release.
 The Shadow jar bundles the database libraries; Paper supplies its API and SLF4J.
 Dependency versions are pinned in [gradle/libs.versions.toml](gradle/libs.versions.toml),
 including Paper API `26.3.build.244-stable`.
@@ -264,8 +286,8 @@ plugin startup, migrations with a restricted role, console `/profile`, shutdown,
 missing-password failure, and database-down startup were checked.
 
 Actual Minecraft-client join, new command, reconnect, permission, and outage
-acceptance checks are still outstanding. Neon-backed plugin operation and CI on
-GitHub are also not yet verified. See the [manual test checklist](docs/testing.md).
+acceptance checks are still outstanding. Neon-backed plugin operation and social
+branch CI are not yet verified. See the [manual test checklist](docs/testing.md).
 
 ## Remaining work and known limitations
 
@@ -274,7 +296,7 @@ GitHub are also not yet verified. See the [manual test checklist](docs/testing.m
    if necessary. Earlier diagnostics came from a failed/stale Gradle import.
 2. Wire Neon environment variables into Java, separating migration and runtime connections.
 3. Complete in-game acceptance tests on a separate server and development database.
-4. Verify CI remotely for the v0.3 candidate when published, and prepare a staging release
+4. Publish and verify CI for the new social development branch, and prepare a staging release
    with backups and a rollback plan.
 
 Current limitations:
@@ -285,11 +307,11 @@ Current limitations:
 - Last-seen timestamps are best-effort, not exact presence records during crashes.
 - Shutdown requests up to 10 seconds per service for worker drain; outage-time write completion needs
   further acceptance testing.
-- No activity reward hooks, player transfers, shops, profile GUI,
-  social features, minigames, or web authentication.
+- No activity reward hooks, player transfers, shops, standalone profile GUI,
+  parties, minigames, or web authentication.
 
 Next steps are live staging acceptance, backup/restore and remote CI verification.
-Later milestones add social/game systems and their settings only when implemented. See the
+Later milestones can add party/game systems after social release acceptance. See the
 [foundation specification](ClubCore_v0.1_Foundation_Specification.md) for the full roadmap
 and definition of done.
 
@@ -303,6 +325,7 @@ and definition of done.
 - [Coin operations](docs/operations-economy.md): cap, retry policy and audit investigation.
 - [Lobby displays](docs/displays.md): commands, V3 preferences, configuration and sidebar ownership.
 - [Player settings](docs/settings.md): API, menu, failure states and session guards.
+- [Friends development slice](docs/social.md): commands, V4, rate limits and remaining milestone work.
 - [Persistence decision](docs/decisions/0001-profile-persistence.md): design rationale.
 
 Package root: `com.inpuzah.club.core`. Suggested commit prefixes:

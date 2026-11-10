@@ -32,6 +32,12 @@ admin-commands:
   max-xp: 0
   max-coins: 0
 
+social:
+  interactions-enabled: true
+  requests-per-minute: 5
+  incoming-limit: 25
+  retry-cooldown-seconds: 30
+
 displays:
   enabled: true
   server: "lobby-1"

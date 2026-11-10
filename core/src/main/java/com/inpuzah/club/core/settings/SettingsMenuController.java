@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /** GUI state and all Bukkit interactions are confined to the primary server thread. */
 public final class SettingsMenuController implements TabExecutor, Listener, AutoCloseable {
@@ -35,6 +36,11 @@ public final class SettingsMenuController implements TabExecutor, Listener, Auto
     private final Map<UUID, SettingsMenuHolder> menus = new HashMap<>();
     private boolean closed;
     private final Renderer renderer;
+    private Consumer<Player> privacy;
+
+    public void privacyMenu(Consumer<Player> privacy) {
+        this.privacy = java.util.Objects.requireNonNull(privacy);
+    }
 
     @FunctionalInterface
     interface Renderer {
@@ -120,7 +126,8 @@ public final class SettingsMenuController implements TabExecutor, Listener, Auto
                 && event.getClick() != org.bukkit.event.inventory.ClickType.RIGHT) {
             return;
         }
-        if (slot != SettingsMenu.BOSSBAR && slot != SettingsMenu.SCOREBOARD && slot != SettingsMenu.CLOSE) {
+        if (slot != SettingsMenu.BOSSBAR && slot != SettingsMenu.SCOREBOARD && slot != SettingsMenu.CLOSE
+                && !(slot == SettingsMenu.INFO && privacy != null)) {
             return;
         }
         if (holder.actionPending && slot != SettingsMenu.CLOSE) {
@@ -141,6 +148,15 @@ public final class SettingsMenuController implements TabExecutor, Listener, Auto
             return;
         }
         UUID uuid = player.getUniqueId();
+        if (slot == SettingsMenu.INFO && privacy != null) {
+            holder.actionPending = false;
+            if (ready(uuid)) {
+                privacy.accept(player);
+            } else {
+                message(player, "Your profile is loading or unavailable.");
+            }
+            return;
+        }
         if (!ready(uuid) || settings.state(uuid) != PlayerSettingsService.State.READY) {
             holder.actionPending = false;
             message(player, "Settings are loading, saving or unavailable. Try again shortly.");

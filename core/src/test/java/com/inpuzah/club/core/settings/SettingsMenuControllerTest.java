@@ -90,6 +90,19 @@ class SettingsMenuControllerTest {
     }
 
     @Test
+    void privacyEntryUsesDeferredOpenerAndDoesNotMutateDisplaySettings() {
+        var viewers = new ArrayList<Player>();
+        controller.privacyMenu(viewers::add);
+        open();
+        controller.onClick(click(SettingsMenu.INFO, ClickType.LEFT));
+        controller.onClick(click(SettingsMenu.INFO, ClickType.LEFT));
+        assertTrue(viewers.isEmpty());
+        drain();
+        assertEquals(List.of(player), viewers);
+        assertEquals(0, settings.writes);
+    }
+
+    @Test
     void commandRequiresPermissionPlayerReadyProfileAndCorrectSyntax() {
         permitted = false;
         open();

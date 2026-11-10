@@ -31,6 +31,12 @@ The repository tests run on a real PostgreSQL 18 using [zonky embedded-postgres]
 | `DisplayManagerTest` | Shared task, per-viewer values, row diffing, safe fallbacks, persistent toggles, uncertain/timed-out saves, ownership handoff, cleanup across 20 reconnects, 100 mock viewers and reload atomicity. |
 | `PlayerSettingsServiceTest` | Existing choices, immutable snapshots, one pending save, profile readiness, cancellation/timeout isolation, late loads, uncertain-write recovery, reconnect and shutdown guards. |
 | `SettingsMenuControllerTest` | Player/permission checks, action slots, deferred single mutations, inventory movement/drag cancellation, pending/error labels, close/reopen, reconnect guards and shared API/cache updates. |
+| `SocialRepositoryIntegrationTest` | V4 fresh/upgrade preservation, canonical UUID keys, viewer-relative relationship snapshots and private block hiding, duplicate/expired requests, transaction rollback, rate/inbox/cooldown limits, reciprocal request and accept/block races, actual PostgreSQL restart, async timeout recovery and Hikari exhaustion. |
+| `DefaultSocialServiceTest` | Off-thread operations, typed/storage failures, input validation, queue rejection, caller timeout/cancellation isolation, normal/deadline/interrupted shutdown. |
+| `SocialCommandTest` | Permissions, syntax/paging, online name and offline UUID targeting, committed notifications, generic privacy errors, local presence, main-thread replies and stale login guards. |
+| `SocialConfigTest` | Existing-config defaults, interaction disable flag, explicit limits and invalid type/range rejection. |
+| `PrivacyMenuControllerTest` | Loading/confirmed/pending/error states, permissions/readiness, deferred navigation, duplicate-click and inventory manipulation guards, reconnect/save ordering, stale callbacks, shutdown, timeout isolation and GUI-to-PostgreSQL policy enforcement without changing display choices. |
+| `InteractionMenuControllerTest` | Sneak/main-hand/config/cancellation gating, deferred opens/actions, explicit relationship actions, cached target preview, inventory protection, viewer/target reconnect and permission guards, pending write ordering, timeout/failure recovery, shutdown and real GUI-to-PostgreSQL accept/block/unblock/privacy enforcement. |
 
 Settings integration extends `DisplayPreferenceIntegrationTest` to exercise the
 unified API against V3 choices, missing-row defaults, SQL rejection/rollback,
@@ -38,6 +44,9 @@ service recreation and an actual PostgreSQL process restart. No V4 is needed.
 Menu tests inject a renderer to exercise event/lifecycle logic without Paper's
 live item registry; actual item rendering and client behavior require
 [settings manual acceptance](testing/settings-manual-acceptance.md).
+Interaction tests also inject the ordinary-inventory predicate because Paper's
+inventory-type registry needs a live server; actual crafting/creative views and
+other plugins' protection/GUI event ordering remain staging checks.
 
 The coin repository integration suite also wires real profile, coin and XP
 services to PostgreSQL and checks post-commit cache refresh, replay freshness and
@@ -52,6 +61,11 @@ before deploying a jar that includes V2.
 V3 is now included as well. The ledger-specific migration tests explicitly target
 V2 to preserve that regression coverage; full-install profile and display tests
 exercise V3. None of these tests migrate a live database.
+
+On the v0.4 development branch full-install tests exercise V4; ledger-specific
+tests remain pinned to V2. The social suite explicitly upgrades populated V3 and
+verifies existing profile/display values. See the [social staging checklist](social.md#upgrade-and-verification)
+before deploying a snapshot; real-client testing and backup/restore remain open.
 
 ## VS Code diagnostics
 
