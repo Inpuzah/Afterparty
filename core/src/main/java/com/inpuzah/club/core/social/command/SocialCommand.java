@@ -116,14 +116,15 @@ public final class SocialCommand implements TabExecutor {
                 message(player, describe(value));
             }
         });
-        if (online != null && (action == SocialAction.REQUEST || action == SocialAction.ACCEPT)) {
+        Player recipient = server.getPlayer(target);
+        if (recipient != null && (action == SocialAction.REQUEST || action == SocialAction.ACCEPT)) {
             String actorName = player.getName();
-            feedback.complete(online, result, (value, error) -> {
-                if (error == null && online.hasPermission("club.social.use")) {
+            feedback.complete(recipient, result, (value, error) -> {
+                if (error == null && recipient.hasPermission("club.social.use")) {
                     if (value == SocialResult.REQUEST_SENT) {
-                        message(online, actorName + " sent a friend request. Use /friend requests.");
+                        message(recipient, actorName + " sent a friend request. Use /friend requests.");
                     } else if (value == SocialResult.ACCEPTED) {
-                        message(online, actorName + " accepted your friend request.");
+                        message(recipient, actorName + " accepted your friend request.");
                     }
                 }
             });
