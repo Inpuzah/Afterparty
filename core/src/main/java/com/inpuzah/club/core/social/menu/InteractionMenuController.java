@@ -114,7 +114,13 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
         var holder = new InteractionMenuHolder(viewer.getUniqueId(), target.getUniqueId(), viewerToken, targetToken);
         var inventory = server.createInventory(holder, PlayerInteractionMenu.SIZE, Component.text("Afterparty \u2022 Player"));
         holder.bind(inventory);
-        renderer.render(inventory, profiles.get(holder.target).orElseThrow().profile(), null, holder.state);
+        var snapshot = profiles.get(holder.target)
+                .filter(session -> session.token() == targetToken && session.state() == SessionState.READY)
+                .map(session -> session.profile()).orElse(null);
+        if (snapshot == null) {
+            return;
+        }
+        renderer.render(inventory, snapshot, null, holder.state);
         viewer.openInventory(inventory);
         if (viewer.getOpenInventory().getTopInventory() == inventory) {
             menus.put(holder.viewer, holder);
