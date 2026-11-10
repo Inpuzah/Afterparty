@@ -2,6 +2,11 @@ package com.inpuzah.club.core.display;
 
 import com.inpuzah.club.core.persistence.Migrations;
 import com.inpuzah.club.core.repository.ProfileStorageException;
+import com.inpuzah.club.core.model.PlayerProfile;
+import com.inpuzah.club.core.session.ProfileSessionManager;
+import com.inpuzah.club.core.settings.DefaultPlayerSettingsService;
+import com.inpuzah.club.core.settings.PlayerSettings;
+import org.slf4j.LoggerFactory;
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -16,8 +21,10 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -122,12 +129,78 @@ class DisplayPreferenceIntegrationTest {
         try (var first = EmbeddedPostgres.builder().setDataDirectory(directory).setCleanDataDirectory(false).start()) {
             Migrations.apply(first.getPostgresDatabase(), getClass().getClassLoader());
             execute(first.getPostgresDatabase(), "INSERT INTO player_profiles(uuid, username) VALUES ('" + uuid + "', 'Player')");
-            new JdbcDisplayPreferenceRepository(first.getPostgresDatabase()).save(uuid, true, false);
+            var service = settings(first.getPostgresDatabase());
+            try {
+                service.get(uuid).get(5, TimeUnit.SECONDS);
+                service.setBossbarVisible(uuid, false).get(5, TimeUnit.SECONDS);
+            } finally {
+                service.shutdown(Duration.ofSeconds(5));
+            }
         }
         try (var second = EmbeddedPostgres.builder().setDataDirectory(directory).setCleanDataDirectory(false).start()) {
-            assertEquals(new DisplayPreferences(false, true),
-                    new JdbcDisplayPreferenceRepository(second.getPostgresDatabase()).load(uuid));
+            var service = settings(second.getPostgresDatabase());
+            try {
+                assertEquals(new PlayerSettings(uuid, false, true), service.get(uuid).get(5, TimeUnit.SECONDS));
+            } finally {
+                service.shutdown(Duration.ofSeconds(5));
+            }
         }
+    }
+
+    @Test
+    void unifiedApiReusesV3DefaultsAndExistingChoicesWithoutMigration() throws Exception {
+        var defaults = settings(source);
+        try {
+            assertEquals(new PlayerSettings(uuid, true, true), defaults.get(uuid).get(5, TimeUnit.SECONDS));
+        } finally {
+            defaults.shutdown(Duration.ofSeconds(5));
+        }
+        repository.save(uuid, true, false);
+        var upgraded = settings(source);
+        try {
+            assertEquals(new PlayerSettings(uuid, false, true), upgraded.get(uuid).get(5, TimeUnit.SECONDS));
+            upgraded.setScoreboardVisible(uuid, false).get(5, TimeUnit.SECONDS);
+            assertEquals(new DisplayPreferences(false, false), repository.load(uuid));
+        } finally {
+            upgraded.shutdown(Duration.ofSeconds(5));
+        }
+        var recreated = settings(source);
+        try {
+            assertEquals(new PlayerSettings(uuid, false, false), recreated.get(uuid).get(5, TimeUnit.SECONDS));
+            assertEquals(0, Migrations.apply(source, getClass().getClassLoader()).migrationsExecuted);
+            assertEquals("3", Flyway.configure().dataSource(source).locations(Migrations.LOCATION)
+                    .load().info().current().getVersion().getVersion());
+        } finally {
+            recreated.shutdown(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void rejectedSqlWriteRollsBackAndKeepsLastCommittedSettings() throws Exception {
+        repository.save(uuid, false, false);
+        String constraint = "reject_settings_" + uuid.toString().replace("-", "");
+        execute(source, "ALTER TABLE display_preferences ADD CONSTRAINT " + constraint
+                + " CHECK (player_uuid <> '" + uuid + "' OR show_bossbar)");
+        var service = settings(source);
+        try {
+            assertEquals(new PlayerSettings(uuid, true, false), service.get(uuid).get(5, TimeUnit.SECONDS));
+            assertThrows(ExecutionException.class, () -> service.setBossbarVisible(uuid, false).get(5, TimeUnit.SECONDS));
+            assertEquals(new DisplayPreferences(true, false), repository.load(uuid));
+            assertEquals(new PlayerSettings(uuid, true, false), service.get(uuid).get(5, TimeUnit.SECONDS));
+        } finally {
+            service.shutdown(Duration.ofSeconds(5));
+            execute(source, "ALTER TABLE display_preferences DROP CONSTRAINT " + constraint);
+        }
+    }
+
+    private DefaultPlayerSettingsService settings(DataSource dataSource) {
+        var sessions = new ProfileSessionManager();
+        sessions.markReady(uuid, sessions.begin(uuid).token(), PlayerProfile.newProfile(uuid, "Player", Instant.EPOCH));
+        var service = new DefaultPlayerSettingsService(
+                new DisplayPreferenceService(new JdbcDisplayPreferenceRepository(dataSource)), sessions,
+                Duration.ofSeconds(5), LoggerFactory.getLogger(getClass()));
+        service.begin(uuid);
+        return service;
     }
 
     private static void execute(DataSource dataSource, String sql) throws Exception {

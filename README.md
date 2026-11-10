@@ -2,7 +2,7 @@
 
 Backend plugins for the Club Minecraft network.
 
-**Current milestone:** ClubCore v0.2.0 (staging validation pending) - Progression, Economy & Lobby Displays<br>
+**Current milestone:** ClubCore v0.3.0 candidate (staging validation pending) - Unified Player Settings<br>
 **Target:** Paper 26.3, Java 25, Gradle Kotlin DSL, PostgreSQL  
 **Status updated:** November 9, 2026
 
@@ -20,12 +20,13 @@ and its future systems are not implemented.
 | XP backend | Atomic lifetime XP awards, level-100 cap, ledger, idempotent retries and admin grants. |
 | Coins backend | Atomic credits/debits, 1-billion balance cap, overdraft checks, ledger and admin commands. |
 | Lobby displays | Animated bossbar/sidebar, cached placeholders, persistent visibility flags and validated admin reload. |
+| Player settings | Immutable async settings API and persistent `/settings` inventory GUI, sharing V3 choices with `/display`. |
 | Join/quit lifecycle | Async profile creation/loading on join and last-seen updates on quit. |
 | Session state | `LOADING`, `READY`, `UNAVAILABLE`, and `CLOSED`, with login tokens and refresh revisions to reject stale callbacks. |
 | Profile service | Async API, duplicate-load coalescing, bounded worker queue, load timeouts. |
 | Failure handling | Friendly player messages; invalid configuration or database/migration failure disables the plugin at startup. |
 | Packaging | Self-contained Shadow jar with relocated PostgreSQL, HikariCP, and Flyway dependencies. |
-| Tests | 187 automated tests for profiles, XP, coins, displays, commands, cache ordering and migrations, including real embedded PostgreSQL. |
+| Tests | 209 automated tests for profiles, XP, coins, displays, settings, inventory interaction guards and migrations, including real embedded PostgreSQL. |
 | Operations | Local Docker Compose database, provisioning script, configuration and backup documentation. |
 | CI | GitHub Actions workflow for Java 25 build/tests and jar upload; remote execution not yet verified. |
 | Neon | CLI/project setup and environment pull completed; Java integration remains unfinished. |
@@ -46,6 +47,7 @@ Username changes do not reset UUID identity, first-join date, or progression fie
 | `/display status` | `club.display` (default: everyone) | Show saved display preferences and server enable flags. |
 | `/display bossbar on\|off` | `club.display` (default: everyone) | Persist your bossbar visibility. |
 | `/display scoreboard on\|off` | `club.display` (default: everyone) | Persist your sidebar visibility. |
+| `/settings` | `club.settings` (default: everyone) | Open your display settings menu; left/right-click to persist a toggle. |
 | `/clubadmin displays reload` | `club.admin.displays` (default: op) | Validate/reload display settings without changing database settings. |
 
 - `/profile` is players only; console receives a helpful message.
@@ -82,6 +84,7 @@ core/
     repository/    Blocking JDBC operations, no Bukkit types
     service/       Async profile API, revision-safe refreshes and bounded workers
     session/       Online session states, login tokens and read revisions
+    settings/      Unified persistent settings API and safe inventory menu
   src/main/resources/
     plugin.yml
     config.yml
@@ -99,10 +102,10 @@ neon.ts           Neon infrastructure configuration, not a plugin runtime
 Only `core` is included in the Gradle build. New modules should be added when they
 have real implementations.
 
-### v0.2 work in progress
+### v0.2 baseline and v0.3 candidate
 
-The `feat/lobby-displays` review branch includes the unmerged progression/economy
-and display work together, starting from the v0.1 foundation. It adds the
+The merged v0.2 baseline adds progression/economy and display work to the
+v0.1 foundation. It includes the
 **V2 coin/XP ledger schema** and
 **atomic XP and coin backend APIs**, with migration, concurrency, replay and
 rollback tests. Levels cap at 100 while lifetime XP continues accumulating.
@@ -111,9 +114,15 @@ Existing V1 profile data is preserved.
 
 Both services are bootstrapped, exposed through plugin accessors and drained before
 the database closes. `/balance`, admin grants/removals and ordered cache refreshes
-are wired. The `feat/lobby-displays` slice adds animated bossbar/sidebar displays,
+are wired. Lobby displays add animated bossbar/sidebar displays,
 V3 persistent preferences, cached placeholders and display reload.
 Activity reward hooks remain deferred.
+
+The v0.3 candidate adds a shared `PlayerSettingsService` and `/settings` GUI.
+It reuses the V3 table unchanged: no V4, reset of existing choices, or separate
+GUI persistence path. Both `/display` and the menu update only confirmed cached
+choices after persistence. See [settings](docs/settings.md) and
+[v0.3 release notes](docs/release-notes-0.3.0.md).
 
 See the [v0.2 release notes](docs/release-notes-0.2.0.md) for the combined scope,
 upgrade procedure, verification evidence and outstanding acceptance checks.
@@ -148,7 +157,7 @@ sh gradlew clean build
 sh gradlew :core:test
 ```
 
-Deployable output: **`core/build/libs/ClubCore-0.2.0.jar`**.
+Deployable output: **`core/build/libs/ClubCore-0.3.0.jar`**.
 The Shadow jar bundles the database libraries; Paper supplies its API and SLF4J.
 Dependency versions are pinned in [gradle/libs.versions.toml](gradle/libs.versions.toml),
 including Paper API `26.3.build.244-stable`.
@@ -218,11 +227,19 @@ branch before migrating production. Never commit or paste connection strings.
 
 ## Verification so far
 
-The November 9 clean Gradle build passed with **187 tests, zero failures/errors,
+The v0.3 candidate clean build passed with **209 tests, zero failures/errors
+and zero skipped tests**. Jar metadata confirms version 0.3.0, `/settings`,
+V1/V2/V3 and all 42 merged Flyway service providers. Candidate checksum and
+verification details are in the [v0.3 release notes](docs/release-notes-0.3.0.md).
+
+The earlier November 9 v0.2 clean Gradle build passed with **187 tests, zero failures/errors,
 and zero skipped tests**, including 25 display tests, command tests and
 PostgreSQL-backed service/cache integration coverage. The shaded
-`ClubCore-0.2.0.jar` contains both backends, display services/commands and V1/V2/V3
-migrations. Live Paper rendering is not yet verified.
+v0.2 jar contained both backends, display services/commands and V1/V2/V3
+migrations. The v0.3 candidate additionally tests shared settings, menu event
+guards, duplicate-click protection and PostgreSQL upgrade/restart persistence.
+Live Paper rendering is not yet verified; see the
+[settings acceptance record](docs/testing/settings-manual-acceptance.md).
 
 Automated coverage includes:
 
@@ -239,6 +256,8 @@ Automated coverage includes:
   replies and token/revision-safe cache updates after real PostgreSQL commits.
 - Display configuration, animation/fallbacks, sidebar cleanup and ownership,
   persistent toggles, reload validation and many-viewer component coverage.
+- Unified settings cache/API, one pending save, inventory event guards, stale
+  menus, cancellation/timeouts, SQL rollback and V3 reuse after recreation/restart.
 
 Earlier smoke tests used **Paper 26.3 build 244, Java 25, and PostgreSQL 18.6**:
 plugin startup, migrations with a restricted role, console `/profile`, shutdown,
@@ -255,7 +274,7 @@ GitHub are also not yet verified. See the [manual test checklist](docs/testing.m
    if necessary. Earlier diagnostics came from a failed/stale Gradle import.
 2. Wire Neon environment variables into Java, separating migration and runtime connections.
 3. Complete in-game acceptance tests on a separate server and development database.
-4. Verify CI remotely, commit/push the v0.2 work when ready, and prepare a staging release
+4. Verify CI remotely for the v0.3 candidate when published, and prepare a staging release
    with backups and a rollback plan.
 
 Current limitations:
@@ -266,11 +285,11 @@ Current limitations:
 - Last-seen timestamps are best-effort, not exact presence records during crashes.
 - Shutdown requests up to 10 seconds per service for worker drain; outage-time write completion needs
   further acceptance testing.
-- No activity reward hooks, player transfers, shops, settings service, profile GUI,
+- No activity reward hooks, player transfers, shops, profile GUI,
   social features, minigames, or web authentication.
 
 Next steps are live staging acceptance, backup/restore and remote CI verification.
-Later milestones add settings and separate social/game systems. See the
+Later milestones add social/game systems and their settings only when implemented. See the
 [foundation specification](ClubCore_v0.1_Foundation_Specification.md) for the full roadmap
 and definition of done.
 
@@ -283,6 +302,7 @@ and definition of done.
 - [Progression and economy](docs/progression-and-economy.md): V2 schema status and deployment gates.
 - [Coin operations](docs/operations-economy.md): cap, retry policy and audit investigation.
 - [Lobby displays](docs/displays.md): commands, V3 preferences, configuration and sidebar ownership.
+- [Player settings](docs/settings.md): API, menu, failure states and session guards.
 - [Persistence decision](docs/decisions/0001-profile-persistence.md): design rationale.
 
 Package root: `com.inpuzah.club.core`. Suggested commit prefixes:

@@ -40,7 +40,7 @@ ClubCore never logs the password, and its connection URL contains no credentials
 | `database.ssl-mode` | `prefer` | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` | Use `verify-full` when the database is on another host. |
 | `database.pool-size` | `4` | 1-20 | Shared connection limit; each of the three services has this many workers. |
 | `database.connection-timeout-ms` | `5000` | 250-60000 | Also bounds how long startup waits when the database is down. |
-| `profile.load-timeout-ms` | `10000` | 1000-60000 | Bounds join/refresh reads and command response waits; does not cancel accepted JDBC mutations. |
+| `profile.load-timeout-ms` | `10000` | 1000-60000 | Bounds join/refresh/settings reads and command/menu response waits; does not cancel accepted JDBC mutations. |
 | `profile.show-ready-message` | `false` | `true` / `false` | Sends "Your profile is ready." on load. |
 | `admin-commands.max-xp` | `0` | 0..`Long.MAX_VALUE` | Max amount per XP grant; 0 means no command limit. |
 | `admin-commands.max-coins` | `0` | 0..`Long.MAX_VALUE` | Max amount per coin add/remove; 0 means no command limit. |
@@ -48,6 +48,9 @@ ClubCore never logs the password, and its connection URL contains no credentials
 Display settings are under `displays`, with defaults inherited by existing
 runtime configurations. See [displays.md](displays.md) for all settings, markup
 validation and the display-only `/clubadmin displays reload` command.
+
+The [player settings menu](settings.md) adds no configuration keys. Its visibility
+choices live in PostgreSQL V3, not YAML; server-wide switches do not erase them.
 
 Existing configurations without `admin-commands` remain valid and default to no
 per-command limit, as requested. To enable safety limits, add the section and
@@ -70,6 +73,8 @@ All ClubCore log lines are prefixed `[ClubCore]`. Bundled libraries log under `c
 | `Profile load for X (uuid) failed: database unavailable` | Connection lost during play; stack trace follows. |
 | `Admin operation UUID: ...` | Audit correlation for accepted admin commands and their outcomes; actor is an administrator UUID or console. |
 | `Could not refresh profile ...; cache unavailable` | Committed data may exist, but `/profile` must not show an old snapshot. |
+| `Settings save outcome uncertain for ...; reloading authoritative choices` | No save success was confirmed; the service retains confirmed choices and performs an ordered recovery read. |
+| `Settings unavailable for ...; use /settings or /display status to retry` | Load/recovery failed or timed out; root cause follows in logs. |
 | `N SERVICE request(s) unresolved after 10s; in-flight commits may have succeeded` | Investigate operation IDs before retrying mutations; last-seen writes remain best-effort. |
 
 ## Troubleshooting

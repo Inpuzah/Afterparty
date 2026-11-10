@@ -26,6 +26,9 @@ import com.inpuzah.club.core.service.DefaultProfileService;
 import com.inpuzah.club.core.service.ProfileService;
 import com.inpuzah.club.core.service.ProfileRefreshService;
 import com.inpuzah.club.core.session.ProfileSessionManager;
+import com.inpuzah.club.core.settings.DefaultPlayerSettingsService;
+import com.inpuzah.club.core.settings.PlayerSettingsService;
+import com.inpuzah.club.core.settings.SettingsMenuController;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
@@ -49,7 +52,8 @@ public final class ClubCorePlugin extends JavaPlugin {
     private DefaultProgressionService progressionService;
     private ProfileRefreshService refreshes;
     private DisplayManager displays;
-    private DisplayPreferenceService displayPreferences;
+    private DefaultPlayerSettingsService settingsService;
+    private SettingsMenuController settingsMenus;
     private DisplayReloadService displayReloads;
 
     @Override
@@ -99,17 +103,29 @@ public final class ClubCorePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(listener, this);
 
         CommandFeedback feedback = new CommandFeedback(getServer(), sessions, mainThread);
-        displayPreferences = new DisplayPreferenceService(new JdbcDisplayPreferenceRepository(database.dataSource()));
+        settingsService = new DefaultPlayerSettingsService(
+                new DisplayPreferenceService(new JdbcDisplayPreferenceRepository(database.dataSource())),
+                sessions, config.profile().loadTimeout(), log);
         displayReloads = new DisplayReloadService(new File(getDataFolder(), "config.yml"), () -> getResource("config.yml"));
-        displays = new DisplayManager(getServer(), sessions, displayPreferences, displayConfig, log,
+        displays = new DisplayManager(getServer(), sessions, settingsService, displayConfig);
+        settingsMenus = new SettingsMenuController(getServer(), sessions, settingsService, mainThread,
                 config.profile().loadTimeout().toMillis());
-        sessions.observe(displays::markDirty);
+        settingsService.observe(uuid -> {
+            displays.markDirty(uuid);
+            mainThread.execute(() -> settingsMenus.refresh(uuid));
+        });
+        sessions.observe(uuid -> {
+            displays.markDirty(uuid);
+            mainThread.execute(() -> settingsMenus.refresh(uuid));
+        });
         getServer().getPluginManager().registerEvents(displays, this);
-        DisplayCommand displayCommand = new DisplayCommand(displays, displayReloads, feedback, log,
+        getServer().getPluginManager().registerEvents(settingsMenus, this);
+        DisplayCommand displayCommand = new DisplayCommand(displays, settingsService, displayReloads, feedback, log,
                 config.profile().loadTimeout().toMillis());
         if (!registerCommand("profile", new ProfileCommand(sessions))
                 || !registerCommand("balance", new BalanceCommand(economyService, feedback, config.profile().loadTimeout(), log))
                 || !registerCommand("display", displayCommand)
+                || !registerCommand("settings", settingsMenus)
                 || !registerCommand("clubadmin", new ClubAdminCommand(getServer(), economyService, progressionService,
                         feedback, config.adminCommands(), config.profile().loadTimeout(), log, displayCommand))) {
             return;
@@ -127,6 +143,13 @@ public final class ClubCorePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         Logger log = getSLF4JLogger();
+        if (settingsService != null) {
+            settingsService.observe(uuid -> {});
+        }
+        if (settingsMenus != null) {
+            settingsMenus.close();
+            settingsMenus = null;
+        }
         if (displays != null) {
             sessions.observe(uuid -> {});
             displays.close();
@@ -136,9 +159,9 @@ public final class ClubCorePlugin extends JavaPlugin {
             drain("display-config", displayReloads::shutdown);
             displayReloads = null;
         }
-        if (displayPreferences != null) {
-            drain("display-preferences", displayPreferences::shutdown);
-            displayPreferences = null;
+        if (settingsService != null) {
+            drain("settings", settingsService::shutdown);
+            settingsService = null;
         }
         if (refreshes != null) {
             refreshes.close();
@@ -183,6 +206,10 @@ public final class ClubCorePlugin extends JavaPlugin {
 
     public DisplayManager displays() {
         return displays;
+    }
+
+    public PlayerSettingsService settingsService() {
+        return settingsService;
     }
 
     private boolean registerCommand(String name, TabExecutor executor) {

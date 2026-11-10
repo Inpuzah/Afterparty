@@ -1,5 +1,9 @@
 # Lobby displays (v0.2.0)
 
+The v0.3 candidate keeps this display engine and adds a
+[shared settings API and inventory GUI](settings.md). `/settings` and `/display`
+use the same confirmed snapshot, V3 table and ordered persistence worker.
+
 ## Features and commands
 
 ClubCore owns an animated Adventure bossbar and a per-player sidebar. Both are
@@ -99,7 +103,7 @@ Quitting, toggling off, disabling the feature, config replacement and plugin
 disable remove bars and unregister owned objectives. The previous scoreboard is
 restored only if the player is still displaying ClubCore's board, so cleanup
 does not overwrite a newer owner's board. One task is cancelled on disable, and
-viewer/dirty/completion references are cleared. Login tokens prevent late
+viewer/dirty references are cleared. Settings-entry identity prevents late
 preference loads or saves from applying to a replacement viewer.
 
 Sidebar entries use stable internal identities with Paper component score names

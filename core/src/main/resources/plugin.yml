@@ -21,8 +21,15 @@ commands:
     description: Manage your persistent lobby display preferences
     usage: /display status or /display <bossbar|scoreboard> <on|off>
     permission: club.display
+  settings:
+    description: Open your persistent player settings
+    usage: /settings
+    permission: club.settings
 
 permissions:
+  club.settings:
+    description: Open and change your own player settings
+    default: true
   club.profile.view:
     description: View your profile
     default: true

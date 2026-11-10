@@ -29,6 +29,15 @@ The repository tests run on a real PostgreSQL 18 using [zonky embedded-postgres]
 | `DisplayConfigTest` | Strict MiniMessage/placeholder/length validation, typed config and interval bounds, duplicate/blank rows and animation wrapping. |
 | `DisplayPreferenceIntegrationTest` | Independent persistent flags, ordered toggle/reconnect reads, fresh/V2-to-V3 migration, constraints and actual PostgreSQL restart persistence. |
 | `DisplayManagerTest` | Shared task, per-viewer values, row diffing, safe fallbacks, persistent toggles, uncertain/timed-out saves, ownership handoff, cleanup across 20 reconnects, 100 mock viewers and reload atomicity. |
+| `PlayerSettingsServiceTest` | Existing choices, immutable snapshots, one pending save, profile readiness, cancellation/timeout isolation, late loads, uncertain-write recovery, reconnect and shutdown guards. |
+| `SettingsMenuControllerTest` | Player/permission checks, action slots, deferred single mutations, inventory movement/drag cancellation, pending/error labels, close/reopen, reconnect guards and shared API/cache updates. |
+
+Settings integration extends `DisplayPreferenceIntegrationTest` to exercise the
+unified API against V3 choices, missing-row defaults, SQL rejection/rollback,
+service recreation and an actual PostgreSQL process restart. No V4 is needed.
+Menu tests inject a renderer to exercise event/lifecycle logic without Paper's
+live item registry; actual item rendering and client behavior require
+[settings manual acceptance](testing/settings-manual-acceptance.md).
 
 The coin repository integration suite also wires real profile, coin and XP
 services to PostgreSQL and checks post-commit cache refresh, replay freshness and
