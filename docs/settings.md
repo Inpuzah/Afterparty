@@ -1,4 +1,4 @@
-# Player settings (v0.4 development)
+# Player settings (v0.5 development)
 
 `/settings` opens a 27-slot inventory for the invoking player. Permission
 `club.settings` defaults to everyone. Console, extra arguments, unavailable
@@ -55,7 +55,7 @@ display switches and temporary game suppression do not rewrite player choices.
 The effective display remains `serverEnabled && playerEnabled && ownerAllows`.
 The shared five-tick display scheduler and sidebar ownership policy are unchanged.
 
-There are no new config keys. `/clubadmin displays reload` changes only display
+Display settings add no config keys. `/clubadmin displays reload` changes only display
 configuration, not player choices, service sessions or menu ownership.
 
 ## Social Privacy submenu
@@ -68,15 +68,17 @@ The book at slot 15 opens a separate 27-slot inventory. Access requires both
 |---|---|
 | 4 | Privacy information |
 | 13 | Friend requests: Everyone / Nobody; click to toggle |
+| 15 | Party invites: Everyone / Nobody; click to toggle |
 | 18 | Back to the main settings menu |
 | 22 | Close |
 
-The policy loads asynchronously on open. Unknown values show Loading or
-Unavailable, never an assumed Everyone. A save retains the last confirmed policy
+Both policies load as one coherent snapshot asynchronously on open. Unknown values
+show Loading or Unavailable, never an assumed Everyone. A save retains both last confirmed choices
 and shows Saving until the actual result arrives. A timeout warns that the write
 may still complete; it does not unlock another write. Failed/uncertain saves
 reload the persisted policy before further changes. Click an unavailable privacy
-item to retry a failed load.
+item to retry a failed load. One pending action spans both controls, preventing
+rapid cross-toggle clicks from racing or applying an unseen loading-state action.
 
 Closing, reopening or reconnecting cannot cancel an accepted save or make a new
 read overtake it. Only an eligible current holder/player/login can receive UI
@@ -84,12 +86,21 @@ updates. Both permissions and profile readiness are rechecked before action;
 inventory movement is cancelled and close/back actions are deferred. No
 per-menu timer is used. Menus are invalidated before social workers drain on disable.
 
-Privacy uses the existing `SocialService.preferences` / `setPreferences` path and
-V4 `social_preferences.friend_requests_enabled`, separately from V3 display
-choices. Everyone is the persisted default; Nobody rejects new requests and
-acceptance of an older pending request. It does not remove existing friendships.
-Blocks are still enforced in both cases. See [social persistence](social.md).
+`SocialService.preferences` returns immutable `SocialPreferences` with
+`friendRequestsEnabled` and `partyInvitesEnabled`. The bounded social worker
+handles both saves: `setPreferences` writes only V4 friend privacy;
+`setPartyPreferences` writes only V5 party privacy via the shared party preference
+repository. Each returns both confirmed choices under the owner's profile-row
+lock. V3 display choices remain separate and unchanged.
+
+Everyone is the default when an existing profile has no saved choice; reading
+does not insert rows. Nobody rejects new requests/invitations and acceptance of
+an older pending request/invitation. Neither toggle removes existing friendships
+or party memberships. Blocks still apply in both directions. The party toggle
+works even with `party.enabled: false`, so the personal choice is retained before
+party runtime registration. The menu notes that party availability depends on
+server configuration. See [social persistence](social.md) and [party status](parties.md).
 
 See the [schema decision](decisions/0002-unified-player-settings.md) and
-[manual acceptance record](testing/settings-manual-acceptance.md). This is an
+[manual acceptance record](testing/settings-manual-acceptance.md). This is a
 development implementation, not a staging-approved release.

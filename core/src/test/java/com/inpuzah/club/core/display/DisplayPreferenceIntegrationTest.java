@@ -110,8 +110,8 @@ class DisplayPreferenceIntegrationTest {
                 VALUES ('%s', '%s', 100, 100, 'CREDIT', 'test', 'grant')
                 """.formatted(UUID.randomUUID(), uuid));
         var result = Migrations.apply(isolated, getClass().getClassLoader());
-        assertEquals(2, result.migrationsExecuted);
-        assertEquals("4", result.targetSchemaVersion);
+        assertEquals(3, result.migrationsExecuted);
+        assertEquals("5", result.targetSchemaVersion);
         var prefs = new JdbcDisplayPreferenceRepository(isolated);
         assertEquals(DisplayPreferences.DEFAULT, prefs.load(uuid));
         prefs.save(uuid, true, false);
@@ -168,7 +168,7 @@ class DisplayPreferenceIntegrationTest {
         try {
             assertEquals(new PlayerSettings(uuid, false, false), recreated.get(uuid).get(5, TimeUnit.SECONDS));
             assertEquals(0, Migrations.apply(source, getClass().getClassLoader()).migrationsExecuted);
-            assertEquals("4", Flyway.configure().dataSource(source).locations(Migrations.LOCATION)
+            assertEquals("5", Flyway.configure().dataSource(source).locations(Migrations.LOCATION)
                     .load().info().current().getVersion().getVersion());
         } finally {
             recreated.shutdown(Duration.ofSeconds(5));

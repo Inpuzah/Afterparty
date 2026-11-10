@@ -499,6 +499,47 @@ class InteractionMenuControllerTest {
         timed.close();
     }
 
+    @Test
+    void partyInviteUsesExactSessionAndSharedNotificationWithoutChangingSocialRelationship() {
+        var writes = new ArrayList<Object[]>();
+        var result = new CompletableFuture<com.inpuzah.club.core.party.model.PartyOutcome>();
+        var parties = proxy(com.inpuzah.club.core.party.service.PartyService.class, (method, args) -> {
+            assertEquals("invite", method);
+            writes.add(args);
+            return result;
+        });
+        controller.partyInvitations(new com.inpuzah.club.core.party.PartyInvitations(server, profiles, parties,
+                main::add, () -> true, id -> true));
+        open(target);
+        controller.onClick(click(PlayerInteractionMenu.PARTY, ClickType.LEFT));
+        controller.onClick(click(PlayerInteractionMenu.PARTY, ClickType.LEFT));
+        drain();
+        assertEquals(1, writes.size());
+        assertEquals(viewerId, writes.getFirst()[0]);
+        assertEquals(targetId, writes.getFirst()[1]);
+        assertEquals(0, social.writes);
+        assertTrue(notifications.isEmpty());
+        result.complete(new com.inpuzah.club.core.party.model.PartyOutcome(
+                com.inpuzah.club.core.party.model.PartyOutcome.Code.INVITED,
+                java.util.Optional.of(UUID.randomUUID()), java.util.Optional.of(UUID.randomUUID())));
+        drain();
+        assertEquals(1, notifications.size());
+        assertTrue(notifications.getLast().contains("invited"));
+        assertEquals(Relationship.NONE, rendered.getLast());
+    }
+
+    @Test
+    void partyInviteWithoutRuntimeOrAfterTargetRejoinDoesNotMutateSocialState() {
+        open(target);
+        controller.onClick(click(PlayerInteractionMenu.PARTY, ClickType.LEFT));
+        drain();
+        assertTrue(messages.getLast().contains("disabled"));
+        ready(targetId, "Target");
+        controller.onClick(click(PlayerInteractionMenu.PARTY, ClickType.LEFT));
+        drain();
+        assertEquals(0, social.writes);
+    }
+
     private void ready(UUID uuid, String name) {
         profiles.markReady(uuid, profiles.begin(uuid).token(), PlayerProfile.newProfile(uuid, name, Instant.EPOCH));
     }
@@ -603,6 +644,7 @@ class InteractionMenuControllerTest {
         @Override public CompletableFuture<List<FriendSummary>> listBlocked(UUID player, int offset, int limit) { throw new AssertionError(); }
         @Override public CompletableFuture<SocialPreferences> preferences(UUID player) { throw new AssertionError(); }
         @Override public CompletableFuture<SocialPreferences> setPreferences(UUID player, boolean enabled) { throw new AssertionError(); }
+        @Override public CompletableFuture<SocialPreferences> setPartyPreferences(UUID player, boolean enabled) { throw new AssertionError(); }
         @Override public int shutdown(Duration timeout) { throw new AssertionError(); }
     }
 }

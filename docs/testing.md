@@ -31,12 +31,26 @@ The repository tests run on a real PostgreSQL 18 using [zonky embedded-postgres]
 | `DisplayManagerTest` | Shared task, per-viewer values, row diffing, safe fallbacks, persistent toggles, uncertain/timed-out saves, ownership handoff, cleanup across 20 reconnects, 100 mock viewers and reload atomicity. |
 | `PlayerSettingsServiceTest` | Existing choices, immutable snapshots, one pending save, profile readiness, cancellation/timeout isolation, late loads, uncertain-write recovery, reconnect and shutdown guards. |
 | `SettingsMenuControllerTest` | Player/permission checks, action slots, deferred single mutations, inventory movement/drag cancellation, pending/error labels, close/reopen, reconnect guards and shared API/cache updates. |
-| `SocialRepositoryIntegrationTest` | V4 fresh/upgrade preservation, canonical UUID keys, viewer-relative relationship snapshots and private block hiding, duplicate/expired requests, transaction rollback, rate/inbox/cooldown limits, reciprocal request and accept/block races, actual PostgreSQL restart, async timeout recovery and Hikari exhaustion. |
+| `SocialRepositoryIntegrationTest` | V4 fresh/upgrade preservation, canonical UUID keys, viewer-relative relationship snapshots and private block hiding, duplicate/expired requests, transaction rollback, rate/inbox/cooldown limits, reciprocal request and accept/block races, actual PostgreSQL restart, async timeout recovery and Hikari exhaustion; V5 combined privacy snapshots, concurrent independent friend/party saves and party-save rollback. |
 | `DefaultSocialServiceTest` | Off-thread operations, typed/storage failures, input validation, queue rejection, caller timeout/cancellation isolation, normal/deadline/interrupted shutdown. |
 | `SocialCommandTest` | Permissions, syntax/paging, online name and offline UUID targeting, committed notifications, generic privacy errors, local presence, main-thread replies and stale login guards. |
 | `SocialConfigTest` | Existing-config defaults, interaction disable flag, explicit limits and invalid type/range rejection. |
-| `PrivacyMenuControllerTest` | Loading/confirmed/pending/error states, permissions/readiness, deferred navigation, duplicate-click and inventory manipulation guards, reconnect/save ordering, stale callbacks, shutdown, timeout isolation and GUI-to-PostgreSQL policy enforcement without changing display choices. |
+| `PrivacyMenuControllerTest` | Loading/confirmed/pending/error states, permissions/readiness, deferred navigation, duplicate-click and inventory manipulation guards, reconnect/save ordering, stale callbacks, shutdown, timeout isolation; independent friend/party toggles, cross-toggle reservation, party loading-click/rejoin/failure guards and real GUI-to-PostgreSQL request/invite/accept policy enforcement without changing display choices. |
 | `InteractionMenuControllerTest` | Sneak/main-hand/config/cancellation gating, deferred opens/actions, explicit relationship actions, cached target preview, inventory protection, viewer/target reconnect and permission guards, pending write ordering, timeout/failure recovery, shutdown and real GUI-to-PostgreSQL accept/block/unblock/privacy enforcement. |
+| `PartyModelTest` | Immutable active-party snapshots, leader/membership/capacity/time invariants, deterministic join/UUID ordering, existing username validation, invite identity and exact TTL boundary, independent personal invite privacy. No runtime party or V5 integration is claimed. |
+| `PartyPersistenceIntegrationTest` | Fresh/V4 upgrades and historical data preservation, schema-owner migration, leader/capacity constraints, concurrent membership/capacity, rejoin history, invite constraints, independent privacy persistence and rollback, epoch contention/scoped crash recovery, graceful close, actual database restart and reconciliation failure rollback. |
+| `PartyRepositoryIntegrationTest` | Create/auto-invite, accept/deny, leave/kick/promote/disband, immutable snapshots, TTL/quota/cooldown limits, block/privacy checks and races, competing party/capacity accepts, leader succession, rollback injection, epoch guards and real async timeout-to-commit recovery; transactional expected-ID/revision mutation guards, replacement-party protection and changes committed while a menu write waits on the epoch lock. |
+| `PartyServiceTest` | All off-thread delegations, typed/storage/lease failures, immutable presence input, bounded queue, caller cancellation/timeout isolation, drain/deadline/interrupted shutdown and policy validation. |
+| `PartyCommandTest` | Permissions/ready sessions, reconnect admission for actor/target, configured grace help, disabled state, online targeting and full UUIDs, bounded pages, literal/clickable invite actions, outcome replies, local presence, stale login/permission guards, timeout isolation and a real command-to-PostgreSQL invite/accept/promote/leave/disband/privacy flow. |
+| `PartyInviteMenuControllerTest` | Exact invitation IDs and target sessions, paging, loading/save/error states, inventory/deferred/rejoin guards, pending reopen ordering, and real candidate invite/incoming accept through PostgreSQL. |
+| `PartyChatCommandTest` | Literal local messages, cancellable moderation, send-mute/receive behavior, ready/admitted/permission checks, sender/recipient reconnect, pending/rate/length/control limits, callback expiry, and real PostgreSQL kick/disband exclusion. |
+| `PartyNotificationsTest` | Committed membership diffs, distinct kick/leave/succession/closure messages, original-session recipients, runtime/permission/loading/offline guards and no stranger delivery. |
+| `PartyInvitationsTest` | Shared pending invitation guard, immutable accept/deny identity, commit-only/original-session notices, caller cancellation isolation and disabled/readiness/permission/admission checks. |
+| `PartyConfigTest` | Bundled/default/explicit settings, strict types and numeric ranges, stable owner validation, dedicated physical datasource settings, disabled pooled-install compatibility without silently deriving a direct host, and bundled party command/default-use permission declarations without unimplemented chat registration. |
+| `PartyRuntimeIntegrationTest` | Off-thread startup, retained-service rejection, graceful closure/reacquisition, owner contention with social isolation, worker/probe/automatic-heartbeat lease loss, stop during blocked startup, drain-before-release including uncooperative workers past the ten-second deadline, endpoint schema/predecessor mismatches and lifecycle-future cancellation isolation. |
+| `PartyMenuControllerTest` | Overview paging through 32 members, explicit create/leave/disband confirmation, session/permission/runtime/admission guards, fresh preflight and transactional stale outcomes, cross-rejoin write/read ordering, late commits/timeouts/failures, all inventory movement paths, literal exact-UUID command suggestions, close/shutdown and actual GUI-controller-to-PostgreSQL create/disband. Live client rendering remains pending. |
+| `PartyDisconnectsTest` | Exact grace boundary, before-expiry/queued reconnect cancellation, claimed cleanup admission barrier, rapid repeated reconnect/quit, bounded submissions, immutable presence, failure containment without blind retry, shutdown and cancellation-isolated completion. |
+| `PartySessionListenerTest` | One shared 20-tick task, adoption of online players, exact Player/login matching, early join cancellation, ready/admitted succession snapshot, disabled/closed event suppression and task/menu invalidation on runtime loss. |
 
 Settings integration extends `DisplayPreferenceIntegrationTest` to exercise the
 unified API against V3 choices, missing-row defaults, SQL rejection/rollback,
@@ -66,6 +80,15 @@ On the v0.4 development branch full-install tests exercise V4; ledger-specific
 tests remain pinned to V2. The social suite explicitly upgrades populated V3 and
 verifies existing profile/display values. See the [social staging checklist](social.md#upgrade-and-verification)
 before deploying a snapshot; real-client testing and backup/restore remain open.
+
+On `feat/parties`, full installs exercise V5 and prior migration expectations and
+explicit truncate lists include the additive party tables. Historical ledger
+tests remain pinned to V2. Party tests use isolated schemas/disposable PostgreSQL,
+including killed lease sessions and restart recovery; they never terminate a
+production connection. See [party storage status](parties.md) before deploying:
+V5 applies automatically even when the opt-in party backend is disabled.
+Party commands/overview/disconnect grace now activate after backend readiness;
+live Paper/client acceptance remains open.
 
 ## VS Code diagnostics
 

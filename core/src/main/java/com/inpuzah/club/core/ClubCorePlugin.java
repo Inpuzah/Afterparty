@@ -12,6 +12,17 @@ import com.inpuzah.club.core.display.DisplayReloadService;
 import com.inpuzah.club.core.display.JdbcDisplayPreferenceRepository;
 import com.inpuzah.club.core.config.ClubCoreConfig;
 import com.inpuzah.club.core.config.ConfigException;
+import com.inpuzah.club.core.party.PartyConfig;
+import com.inpuzah.club.core.party.PartyRuntime;
+import com.inpuzah.club.core.party.PartyDisconnects;
+import com.inpuzah.club.core.party.PartySessionListener;
+import com.inpuzah.club.core.party.PartyInvitations;
+import com.inpuzah.club.core.party.PartyNotifications;
+import com.inpuzah.club.core.party.chat.PartyChatCommand;
+import com.inpuzah.club.core.party.command.PartyCommand;
+import com.inpuzah.club.core.party.menu.PartyInviteMenuController;
+import com.inpuzah.club.core.party.menu.PartyMenuController;
+import com.inpuzah.club.core.party.service.PartyService;
 import com.inpuzah.club.core.listener.PlayerSessionListener;
 import com.inpuzah.club.core.economy.DefaultEconomyService;
 import com.inpuzah.club.core.economy.EconomyService;
@@ -46,6 +57,9 @@ import org.slf4j.Logger;
 import java.time.Duration;
 import java.io.File;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 public final class ClubCorePlugin extends JavaPlugin {
 
@@ -65,6 +79,11 @@ public final class ClubCorePlugin extends JavaPlugin {
     private DefaultSocialService socialService;
     private PrivacyMenuController privacyMenus;
     private InteractionMenuController interactionMenus;
+    private volatile PartyRuntime parties;
+    private PartySessionListener partySessions;
+    private PartyMenuController partyMenus;
+    private PartyInviteMenuController partyInviteMenus;
+    private PartyChatCommand partyChat;
 
     @Override
     public void onEnable() {
@@ -75,10 +94,12 @@ public final class ClubCorePlugin extends JavaPlugin {
         ClubCoreConfig config;
         DisplayConfig displayConfig;
         SocialConfig socialConfig;
+        PartyConfig partyConfig;
         try {
             config = ClubCoreConfig.load(getConfig(), System::getenv);
             displayConfig = DisplayConfig.load(getConfig());
             socialConfig = SocialConfig.load(getConfig());
+            partyConfig = PartyConfig.load(getConfig(), config.database());
         } catch (ConfigException e) {
             fail("Invalid configuration: " + e.getMessage(), null);
             return;
@@ -117,6 +138,11 @@ public final class ClubCorePlugin extends JavaPlugin {
         CommandFeedback feedback = new CommandFeedback(getServer(), sessions, mainThread);
         socialService = DefaultSocialService.create(new JdbcSocialRepository(database.dataSource(), socialConfig),
                 config.database().poolSize(), PROFILE_QUEUE_CAPACITY, log);
+        if (partyConfig.enabled()) {
+            parties = new PartyRuntime(database.dataSource(), partyConfig.leaseDataSource(config.database()),
+                    // FIFO prevents older accepted writes from overtaking a later disconnect cleanup.
+                    partyConfig.ownerId(), partyConfig.policy(), 1, PROFILE_QUEUE_CAPACITY, log);
+        }
         settingsService = new DefaultPlayerSettingsService(
                 new DisplayPreferenceService(new JdbcDisplayPreferenceRepository(database.dataSource())),
                 sessions, config.profile().loadTimeout(), log);
@@ -139,6 +165,10 @@ public final class ClubCorePlugin extends JavaPlugin {
             mainThread.execute(() -> settingsMenus.refresh(uuid));
             mainThread.execute(() -> privacyMenus.refresh(uuid));
             mainThread.execute(() -> interactionMenus.refresh(uuid));
+            mainThread.execute(() -> {
+                if (partyMenus != null) { partyMenus.refresh(uuid); }
+                if (partyInviteMenus != null) { partyInviteMenus.refresh(); }
+            });
         });
         getServer().getPluginManager().registerEvents(displays, this);
         getServer().getPluginManager().registerEvents(settingsMenus, this);
@@ -161,6 +191,67 @@ public final class ClubCorePlugin extends JavaPlugin {
                 return;
             }
         }
+        TabExecutor unavailableParty = new TabExecutor() {
+            @Override public boolean onCommand(org.bukkit.command.CommandSender sender, org.bukkit.command.Command command,
+                                               String label, String[] args) {
+                sender.sendMessage(net.kyori.adventure.text.Component.text("Parties are disabled or temporarily unavailable."));
+                return true;
+            }
+            @Override public java.util.List<String> onTabComplete(org.bukkit.command.CommandSender sender,
+                    org.bukkit.command.Command command, String alias, String[] args) {
+                return java.util.List.of();
+            }
+        };
+        if (!registerCommand("party", unavailableParty) || !registerCommand("pc", unavailableParty)) { return; }
+        if (parties != null) {
+            var runtime = parties;
+            runtime.started().thenRunAsync(() -> {
+                if (!isEnabled() || runtime.state() != PartyRuntime.State.READY) { return; }
+                var service = runtime.service();
+                runtime.observe(new PartyNotifications(getServer(), sessions, mainThread,
+                        () -> isEnabled() && runtime.state() == PartyRuntime.State.READY));
+                var disconnects = new PartyDisconnects(service, partyConfig.disconnectGrace(), java.time.Clock.systemUTC(), log,
+                        error -> {
+                            log.error("Party disconnect lifecycle unavailable; stopping parties until restart", error);
+                            runtime.stop();
+                        });
+                partySessions = new PartySessionListener(getServer(), sessions, disconnects,
+                        () -> runtime.state() == PartyRuntime.State.READY);
+                partyMenus = new PartyMenuController(getServer(), sessions, service, mainThread,
+                        config.profile().loadTimeout().toMillis(),
+                        () -> partyConfig.menuEnabled() && runtime.state() == PartyRuntime.State.READY, log);
+                partyMenus.admission(partySessions::admitted);
+                var invitations = new PartyInvitations(getServer(), sessions, service,
+                        mainThread, () -> isEnabled() && runtime.state() == PartyRuntime.State.READY, partySessions::admitted);
+                interactionMenus.partyInvitations(invitations);
+                partyInviteMenus = new PartyInviteMenuController(getServer(), sessions, service,
+                        invitations, mainThread, config.profile().loadTimeout().toMillis(),
+                        () -> partyConfig.menuEnabled() && runtime.state() == PartyRuntime.State.READY, partyMenus::open, log);
+                partyMenus.invitationMenus(partyInviteMenus::openIncoming, partyInviteMenus::openCandidates, partyConfig.chatEnabled());
+                partyChat = new PartyChatCommand(getServer(), sessions, service, mainThread,
+                        () -> isEnabled() && partyConfig.chatEnabled() && runtime.state() == PartyRuntime.State.READY,
+                        partySessions::admitted, log);
+                partySessions.onUnavailable(() -> { partyMenus.close(); partyInviteMenus.close(); partyChat.close(); });
+                getServer().getPluginManager().registerEvents(partySessions, this);
+                getServer().getPluginManager().registerEvents(partyMenus, this);
+                getServer().getPluginManager().registerEvents(partyInviteMenus, this);
+                getServer().getPluginManager().registerEvents(partyChat, this);
+                partySessions.start(this);
+                var partyCommand = new PartyCommand(getServer(), sessions, service, feedback,
+                        config.profile().loadTimeout(), log, () -> runtime.state() == PartyRuntime.State.READY,
+                        player -> {
+                            if (partyConfig.menuEnabled()) { partyMenus.open(player); }
+                            else { player.sendMessage(net.kyori.adventure.text.Component.text("Party menu disabled. Use /party help.")); }
+                        }, partySessions::admitted, partyConfig.disconnectGrace());
+                partyCommand.invitations(invitations);
+                if (!registerCommand("party", partyCommand) || !registerCommand("pc", partyChat)) { return; }
+                log.info("Party commands and disconnect lifecycle ready; overview menu enabled={}", partyConfig.menuEnabled());
+            }, mainThread).exceptionally(error -> {
+                log.error("Could not activate party controls; stopping party runtime", error);
+                runtime.stop();
+                return null;
+            });
+        }
 
         // Players already online after a reload never fire PlayerJoinEvent for us.
         for (Player player : getServer().getOnlinePlayers()) {
@@ -174,6 +265,23 @@ public final class ClubCorePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         Logger log = getSLF4JLogger();
+        if (partyChat != null) { partyChat.close(); partyChat = null; }
+        if (partyInviteMenus != null) { partyInviteMenus.close(); partyInviteMenus = null; }
+        if (partyMenus != null) { partyMenus.close(); partyMenus = null; }
+        if (partySessions != null) { partySessions.close(); partySessions = null; }
+        if (parties != null) {
+            try {
+                parties.stop().get(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted waiting for party shutdown; asynchronous cleanup retains ownership until workers terminate", error);
+            } catch (TimeoutException error) {
+                log.warn("Party shutdown still pending; cleanup retains ownership until workers terminate and the epoch closes", error);
+            } catch (ExecutionException error) {
+                log.error("Party shutdown failed; next startup must reconcile the previous epoch", error.getCause());
+            }
+            parties = null;
+        }
         if (interactionMenus != null) {
             interactionMenus.close();
             interactionMenus = null;
@@ -257,6 +365,14 @@ public final class ClubCorePlugin extends JavaPlugin {
 
     public SocialService socialService() {
         return socialService;
+    }
+
+    public PartyService partyService() {
+        var runtime = parties;
+        if (runtime == null) {
+            throw new IllegalStateException("Party runtime is disabled");
+        }
+        return runtime.service();
     }
 
     private boolean registerCommand(String name, TabExecutor executor) {

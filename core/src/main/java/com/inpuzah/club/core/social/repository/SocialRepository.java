@@ -18,4 +18,5 @@ public interface SocialRepository {
     List<FriendSummary> listBlocked(UUID player, int offset, int limit);
     SocialPreferences preferences(UUID player);
     SocialPreferences setPreferences(UUID player, boolean requestsEnabled);
+    SocialPreferences setPartyPreferences(UUID player, boolean invitesEnabled);
 }

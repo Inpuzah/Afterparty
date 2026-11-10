@@ -57,6 +57,12 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
     private final Set<UUID> opening = new HashSet<>();
     private final Map<UUID, CompletableFuture<SocialResult>> pending = new HashMap<>();
     private boolean closed;
+    private com.inpuzah.club.core.party.PartyInvitations invitations;
+    private final Map<UUID, CompletableFuture<com.inpuzah.club.core.party.model.PartyOutcome>> partyPending = new HashMap<>();
+
+    public void partyInvitations(com.inpuzah.club.core.party.PartyInvitations invitations) {
+        this.invitations = java.util.Objects.requireNonNull(invitations);
+    }
 
     public InteractionMenuController(Server server, ProfileSessionManager profiles, SocialService service,
                                      Executor main, long timeoutMillis, Logger logger, boolean enabled) {
@@ -133,8 +139,11 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
         long revision = ++holder.revision;
         render(player, holder);
         var write = pending.get(holder.viewer);
-        var read = write == null ? service.relationship(holder.viewer, holder.target)
-                : write.handle((value, error) -> null).thenCompose(ignored -> service.relationship(holder.viewer, holder.target));
+        var partyWrite = partyPending.get(holder.viewer);
+        var barrier = CompletableFuture.allOf(
+                write == null ? CompletableFuture.completedFuture(null) : write.handle((value, error) -> null),
+                partyWrite == null ? CompletableFuture.completedFuture(null) : partyWrite.handle((value, error) -> null));
+        var read = barrier.thenCompose(ignored -> service.relationship(holder.viewer, holder.target));
         read.copy().orTimeout(timeoutMillis, TimeUnit.MILLISECONDS).whenCompleteAsync((relationship, error) -> {
             if (!current(player, holder) || holder.revision != revision) {
                 return;
@@ -162,11 +171,13 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
             return;
         }
         int slot = event.getRawSlot();
-        if (slot != PlayerInteractionMenu.FRIEND && slot != PlayerInteractionMenu.BLOCK && slot != PlayerInteractionMenu.CLOSE) {
+        if (slot != PlayerInteractionMenu.FRIEND && slot != PlayerInteractionMenu.BLOCK && slot != PlayerInteractionMenu.CLOSE
+                && slot != PlayerInteractionMenu.PARTY) {
             return;
         }
         if (slot != PlayerInteractionMenu.CLOSE && (holder.state == PlayerInteractionMenu.State.LOADING
-                || holder.state == PlayerInteractionMenu.State.SAVING || pending.containsKey(holder.viewer))) {
+                || holder.state == PlayerInteractionMenu.State.SAVING || pending.containsKey(holder.viewer)
+                || partyPending.containsKey(holder.viewer))) {
             message(player, "A social action is loading or saving. Please wait.");
             return;
         }
@@ -187,11 +198,13 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
         } else if (!available(holder)) {
             message(player, "Player profile is loading or unavailable.");
             render(player, holder);
-        } else if (pending.containsKey(holder.viewer) || holder.state == PlayerInteractionMenu.State.LOADING
+        } else if (pending.containsKey(holder.viewer) || partyPending.containsKey(holder.viewer) || holder.state == PlayerInteractionMenu.State.LOADING
                 || holder.state == PlayerInteractionMenu.State.SAVING) {
             message(player, "A social action is loading or saving. Please wait.");
         } else if (holder.state == PlayerInteractionMenu.State.UNAVAILABLE) {
             load(player, holder);
+        } else if (slot == PlayerInteractionMenu.PARTY) {
+            inviteParty(player, holder);
         } else {
             SocialAction action = slot == PlayerInteractionMenu.BLOCK
                     ? holder.relationship == Relationship.BLOCKED ? SocialAction.UNBLOCK : SocialAction.BLOCK
@@ -200,8 +213,39 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
                 message(player, "Unblock this player before sending a request.");
                 return;
             }
+
             save(player, holder, action);
         }
+    }
+
+    private void inviteParty(Player player, InteractionMenuHolder holder) {
+        if (invitations == null) { message(player, "Parties are disabled or temporarily unavailable."); return; }
+        var target = server.getPlayer(holder.target);
+        if (target == null || !login(holder.target, holder.targetToken)) {
+            message(player, "Target session changed. Reopen this menu.");
+            return;
+        }
+        holder.state = PlayerInteractionMenu.State.SAVING;
+        ++holder.revision;
+        render(player, holder);
+        var result = invitations.invite(player, target);
+        partyPending.put(holder.viewer, result);
+        result.whenCompleteAsync((outcome, error) -> {
+            partyPending.remove(holder.viewer, result);
+            if (!current(player, holder)) { return; }
+            if (error == null) {
+                message(player, com.inpuzah.club.core.party.command.PartyCommand.describe(outcome.code()));
+            } else {
+                logger.warn("Interaction party invitation uncertain for {} and {}", holder.viewer, holder.target, error);
+                message(player, "Party invitation not confirmed; it may still have completed. Check /party invites.");
+            }
+            load(player, holder);
+        }, main);
+        result.copy().orTimeout(timeoutMillis, TimeUnit.MILLISECONDS).whenCompleteAsync((value, error) -> {
+            if (error != null && current(player, holder) && partyPending.get(holder.viewer) == result) {
+                message(player, "Party invitation may still complete. Wait for confirmation.");
+            }
+        }, main);
     }
 
     private void save(Player player, InteractionMenuHolder holder, SocialAction action) {
@@ -343,6 +387,7 @@ public final class InteractionMenuController implements Listener, AutoCloseable 
         menus.clear();
         opening.clear();
         pending.clear();
+        partyPending.clear();
     }
 
     private static void message(Player player, String text) {

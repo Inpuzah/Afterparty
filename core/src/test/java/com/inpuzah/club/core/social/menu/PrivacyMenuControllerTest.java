@@ -1,6 +1,10 @@
 package com.inpuzah.club.core.social.menu;
 
 import com.inpuzah.club.core.model.PlayerProfile;
+import com.inpuzah.club.core.party.PartyPolicy;
+import com.inpuzah.club.core.party.repository.PartyEpochLease;
+import com.inpuzah.club.core.party.repository.JdbcPartyRepository;
+import com.inpuzah.club.core.party.model.PartyOutcome;
 import com.inpuzah.club.core.persistence.Migrations;
 import com.inpuzah.club.core.repository.JdbcProfileRepository;
 import com.inpuzah.club.core.display.JdbcDisplayPreferenceRepository;
@@ -35,6 +39,7 @@ import org.bukkit.inventory.InventoryView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.postgresql.ds.PGSimpleDataSource;
 
 import java.lang.reflect.Proxy;
 import java.time.Duration;
@@ -106,6 +111,106 @@ class PrivacyMenuControllerTest {
     @BeforeEach
     void join() {
         profiles.markReady(uuid, profiles.begin(uuid).token(), PlayerProfile.newProfile(uuid, "Player", Instant.EPOCH));
+    }
+
+    @Test
+    void partyPrivacyClickIsDeferredAndReservesOneWriteAcrossBothControls() {
+        social.read = CompletableFuture.completedFuture(new SocialPreferences(uuid, false, true));
+        openReady();
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+        controller.onClick(click(PrivacyMenu.REQUESTS, ClickType.LEFT));
+        assertEquals(0, social.writes);
+        drain();
+        assertEquals(1, social.writes);
+        assertTrue(social.partyWrite);
+        assertFalse(social.desired);
+        assertTrue(snapshots.getLast().partyInvitesEnabled());
+        assertFalse(snapshots.getLast().friendRequestsEnabled());
+        assertEquals(PrivacyMenu.State.SAVING, states.getLast());
+        controller.onClick(click(PrivacyMenu.REQUESTS, ClickType.RIGHT));
+        drain();
+        assertEquals(1, social.writes);
+        social.write.complete(new SocialPreferences(uuid, false, false));
+        drain();
+        assertFalse(snapshots.getLast().partyInvitesEnabled());
+        assertFalse(snapshots.getLast().friendRequestsEnabled());
+        assertEquals(PrivacyMenu.State.READY, states.getLast());
+        social.write = new CompletableFuture<>();
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.RIGHT));
+        drain();
+        assertTrue(social.desired);
+        social.write.complete(new SocialPreferences(uuid, false, true));
+        drain();
+        assertTrue(snapshots.getLast().partyInvitesEnabled());
+    }
+
+    @Test
+    void friendTogglePreservesConfirmedPartyChoiceAndPartyLoadingClicksCannotBecomeUnseenActions() {
+        social.read = new CompletableFuture<>();
+        controller.open(player);
+        social.read.complete(new SocialPreferences(uuid, true, false));
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+        drain();
+        assertEquals(0, social.writes);
+        controller.onClick(click(PrivacyMenu.REQUESTS, ClickType.LEFT));
+        drain();
+        assertFalse(social.partyWrite);
+        social.write.complete(new SocialPreferences(uuid, false, false));
+        drain();
+        assertFalse(snapshots.getLast().partyInvitesEnabled());
+        assertFalse(snapshots.getLast().friendRequestsEnabled());
+    }
+
+    @Test
+    void partyWriteIsOrderedBeforeReopenReadAndOldMenuCannotUpdateNewSession() {
+        openReady();
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+        drain();
+        player.closeInventory();
+        profiles.close(uuid);
+        join();
+        controller.open(player);
+        drain();
+        assertEquals(1, social.reads);
+        assertEquals(PrivacyMenu.State.LOADING, states.getLast());
+        social.read = CompletableFuture.completedFuture(new SocialPreferences(uuid, true, false));
+        social.write.complete(new SocialPreferences(uuid, true, false));
+        drain();
+        assertEquals(2, social.reads);
+        assertFalse(snapshots.getLast().partyInvitesEnabled());
+        assertEquals(PrivacyMenu.State.READY, states.getLast());
+    }
+
+    @Test
+    void failedPartySaveReloadsBothAuthoritativeChoicesBeforeAnotherWrite() {
+        openReady();
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+        drain();
+        social.read = CompletableFuture.completedFuture(new SocialPreferences(uuid, false, false));
+        social.write.completeExceptionally(new IllegalStateException("uncertain acknowledgement"));
+        drain();
+        assertTrue(messages.getLast().contains("Could not confirm"));
+        assertEquals(PrivacyMenu.State.READY, states.getLast());
+        assertFalse(snapshots.getLast().friendRequestsEnabled());
+        assertFalse(snapshots.getLast().partyInvitesEnabled());
+    }
+
+    @Test
+    void partyToggleRejectsInventoryManipulationAndPermissionRevocation() {
+        openReady();
+        for (var type : List.of(ClickType.SHIFT_LEFT, ClickType.NUMBER_KEY, ClickType.SWAP_OFFHAND,
+                ClickType.DOUBLE_CLICK, ClickType.DROP, ClickType.CONTROL_DROP, ClickType.MIDDLE)) {
+            var event = click(PrivacyMenu.PARTY_INVITES, type);
+            controller.onClick(event);
+            assertTrue(event.isCancelled());
+        }
+        drain();
+        assertEquals(0, social.writes);
+        controller.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+        socialPermission = false;
+        drain();
+        assertEquals(0, social.writes);
+        assertEquals(1, closed);
     }
 
     @Test
@@ -395,6 +500,76 @@ class PrivacyMenuControllerTest {
         assertEquals("Loading...", PrivacyMenu.status(null, PrivacyMenu.State.LOADING));
         assertEquals("Saving...", PrivacyMenu.status(null, PrivacyMenu.State.SAVING));
         assertEquals("Unavailable", PrivacyMenu.status(null, PrivacyMenu.State.UNAVAILABLE));
+        assertEquals("Nobody", PrivacyMenu.partyStatus(new SocialPreferences(uuid, true, false), PrivacyMenu.State.READY));
+        assertEquals("Everyone", PrivacyMenu.partyStatus(new SocialPreferences(uuid, false, true), PrivacyMenu.State.READY));
+        assertEquals("Unavailable", PrivacyMenu.partyStatus(null, PrivacyMenu.State.READY));
+        assertEquals("Loading...", PrivacyMenu.partyStatus(null, PrivacyMenu.State.LOADING));
+        assertEquals("Saving...", PrivacyMenu.partyStatus(null, PrivacyMenu.State.SAVING));
+    }
+
+    @Test
+    void partyMenuChoicePersistsAndGatesNewInvitesAndPendingAcceptanceIndependently() throws Exception {
+        try (var postgres = EmbeddedPostgres.builder().start()) {
+            var data = new PGSimpleDataSource();
+            data.setServerNames(new String[]{"127.0.0.1"});
+            data.setPortNumbers(new int[]{postgres.getPort()});
+            data.setDatabaseName("postgres");
+            data.setUser("postgres");
+            Migrations.apply(data, getClass().getClassLoader());
+            var storedProfiles = new JdbcProfileRepository(data);
+            storedProfiles.upsertOnJoin(uuid, "Player");
+            UUID sender = UUID.randomUUID();
+            storedProfiles.upsertOnJoin(sender, "Sender");
+            var displays = new JdbcDisplayPreferenceRepository(data);
+            displays.save(uuid, true, false);
+            try (var lease = PartyEpochLease.acquire(data, "privacy-test")) {
+                var parties = new JdbcPartyRepository(data, lease, PartyPolicy.DEFAULT);
+                var service = DefaultSocialService.create(new JdbcSocialRepository(data, SocialConfig.DEFAULT),
+                        1, 10, LoggerFactory.getLogger(getClass()));
+                var menu = new PrivacyMenuController(server, profiles, service, main::add, 5000,
+                        LoggerFactory.getLogger(getClass()), this::render);
+                try {
+                    menu.open(player);
+                    service.preferences(uuid).get(5, TimeUnit.SECONDS);
+                    drain();
+                    menu.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+                    drain();
+                    assertEquals(new SocialPreferences(uuid, true, false),
+                            service.preferences(uuid).get(5, TimeUnit.SECONDS));
+                    drain();
+                    assertFalse(snapshots.getLast().partyInvitesEnabled());
+                    assertEquals(PartyOutcome.Code.BLOCKED_OR_RESTRICTED, parties.invite(sender, uuid).code());
+                    assertTrue(parties.getParty(sender).isEmpty());
+                    assertEquals(SocialResult.REQUEST_SENT,
+                            service.mutate(SocialAction.REQUEST, sender, uuid).get(5, TimeUnit.SECONDS));
+                    menu.onClick(click(PrivacyMenu.REQUESTS, ClickType.LEFT));
+                    drain();
+                    assertEquals(new SocialPreferences(uuid, false, false),
+                            service.preferences(uuid).get(5, TimeUnit.SECONDS));
+                    drain();
+                    menu.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.RIGHT));
+                    drain();
+                    assertEquals(new SocialPreferences(uuid, false, true),
+                            service.preferences(uuid).get(5, TimeUnit.SECONDS));
+                    drain();
+                    var invite = parties.invite(sender, uuid);
+                    assertEquals(PartyOutcome.Code.INVITED, invite.code());
+                    menu.onClick(click(PrivacyMenu.PARTY_INVITES, ClickType.LEFT));
+                    drain();
+                    service.preferences(uuid).get(5, TimeUnit.SECONDS);
+                    drain();
+                    assertEquals(PartyOutcome.Code.BLOCKED_OR_RESTRICTED,
+                            parties.accept(uuid, invite.inviteId().orElseThrow()).code());
+                    assertTrue(parties.getParty(uuid).isEmpty());
+                    assertEquals(new SocialPreferences(uuid, false, false),
+                            new JdbcSocialRepository(data, SocialConfig.DEFAULT).preferences(uuid));
+                    assertEquals(new DisplayPreferences(false, true), displays.load(uuid));
+                } finally {
+                    menu.close();
+                    service.shutdown(Duration.ofSeconds(5));
+                }
+            }
+        }
     }
 
     @Test
@@ -505,11 +680,15 @@ class PrivacyMenuControllerTest {
         int reads;
         int writes;
         boolean desired;
+        boolean partyWrite;
         CompletableFuture<SocialPreferences> read = CompletableFuture.completedFuture(new SocialPreferences(uuid, true));
         CompletableFuture<SocialPreferences> write = new CompletableFuture<>();
         @Override public CompletableFuture<SocialPreferences> preferences(UUID player) { reads++; return read; }
         @Override public CompletableFuture<SocialPreferences> setPreferences(UUID player, boolean enabled) {
-            writes++; desired = enabled; return write;
+            writes++; desired = enabled; partyWrite = false; return write;
+        }
+        @Override public CompletableFuture<SocialPreferences> setPartyPreferences(UUID player, boolean enabled) {
+            writes++; desired = enabled; partyWrite = true; return write;
         }
         @Override public CompletableFuture<SocialResult> mutate(SocialAction action, UUID actor, UUID other) { throw new AssertionError(); }
         @Override public CompletableFuture<List<FriendSummary>> listFriends(UUID player, int offset, int limit) { throw new AssertionError(); }

@@ -89,6 +89,11 @@ public final class DefaultSocialService implements SocialService {
         return submit(() -> repository.setPreferences(Objects.requireNonNull(player, "player"), requestsEnabled));
     }
 
+    @Override
+    public CompletableFuture<SocialPreferences> setPartyPreferences(UUID player, boolean invitesEnabled) {
+        return submit(() -> repository.setPartyPreferences(Objects.requireNonNull(player, "player"), invitesEnabled));
+    }
+
     private <T> CompletableFuture<T> submit(Supplier<T> operation) {
         return workers.submit(() -> {
             try {

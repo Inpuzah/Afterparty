@@ -59,7 +59,8 @@ class DefaultSocialServiceTest {
         assertEquals(new SocialPreferences(actor, true), service.preferences(actor).get(5, TimeUnit.SECONDS));
         assertEquals(new SocialPreferences(actor, false), service.setPreferences(actor, false).get(5, TimeUnit.SECONDS));
         assertEquals(Relationship.NONE, service.relationship(actor, other).get(5, TimeUnit.SECONDS));
-        assertEquals(6, repository.calls.get());
+        assertEquals(new SocialPreferences(actor, true, false), service.setPartyPreferences(actor, false).get(5, TimeUnit.SECONDS));
+        assertEquals(7, repository.calls.get());
     }
 
     @Test
@@ -68,6 +69,7 @@ class DefaultSocialServiceTest {
         assertInstanceOf(NullPointerException.class, failure(service.mutate(null, actor, other)));
         assertInstanceOf(NullPointerException.class, failure(service.mutate(SocialAction.REQUEST, null, other)));
         assertInstanceOf(NullPointerException.class, failure(service.preferences(null)));
+        assertInstanceOf(NullPointerException.class, failure(service.setPartyPreferences(null, false)));
         assertInstanceOf(NullPointerException.class, failure(service.relationship(null, other)));
         assertInstanceOf(NullPointerException.class, failure(service.relationship(actor, null)));
         assertInstanceOf(IllegalArgumentException.class, failure(service.relationship(actor, actor)));
@@ -84,6 +86,7 @@ class DefaultSocialServiceTest {
         assertInstanceOf(ProfileStorageException.class, failure(mutate()));
         assertInstanceOf(ProfileStorageException.class, failure(service.listFriends(actor, 0, 10)));
         assertInstanceOf(ProfileStorageException.class, failure(service.relationship(actor, other)));
+        assertInstanceOf(ProfileStorageException.class, failure(service.setPartyPreferences(actor, false)));
         repository.failure = new SocialException(SocialException.Code.PLAYER_NOT_FOUND, "missing");
         assertEquals(SocialException.Code.PLAYER_NOT_FOUND,
                 assertInstanceOf(SocialException.class, failure(service.preferences(actor))).code());
@@ -202,5 +205,6 @@ class DefaultSocialServiceTest {
         @Override public List<FriendSummary> listBlocked(UUID player, int offset, int limit) { await(); return List.of(); }
         @Override public SocialPreferences preferences(UUID player) { await(); return new SocialPreferences(player, true); }
         @Override public SocialPreferences setPreferences(UUID player, boolean enabled) { await(); return new SocialPreferences(player, enabled); }
+        @Override public SocialPreferences setPartyPreferences(UUID player, boolean enabled) { await(); return new SocialPreferences(player, true, enabled); }
     }
 }

@@ -2,7 +2,7 @@
 
 Backend plugins for the Club Minecraft network.
 
-**Current milestone:** ClubCore v0.3.0 candidate (staging validation pending) - Unified Player Settings<br>
+**Current milestone:** ClubCore v0.5 development (staging validation pending) - Parties and Communication<br>
 **Target:** Paper 26.3, Java 25, Gradle Kotlin DSL, PostgreSQL  
 **Status updated:** November 9, 2026
 
@@ -16,17 +16,18 @@ and its future systems are not implemented.
 |---|---|
 | Plugin bootstrap | Main class, `plugin.yml`, configuration, profile/XP/coin service lifecycle and command registration. |
 | Player identity | Immutable UUID-keyed profile with username, first join, last seen, level, XP, and coins. |
-| Persistence | PostgreSQL JDBC repositories, HikariCP connection pool, Flyway V1-V3 plus V4 social tables on this development branch. |
+| Persistence | PostgreSQL JDBC repositories, HikariCP connection pool, Flyway V1-V4 plus V5 party storage on this development branch. |
 | XP backend | Atomic lifetime XP awards, level-100 cap, ledger, idempotent retries and admin grants. |
 | Coins backend | Atomic credits/debits, 1-billion balance cap, overdraft checks, ledger and admin commands. |
 | Lobby displays | Animated bossbar/sidebar, cached placeholders, persistent visibility flags and validated admin reload. |
 | Player settings | Immutable async settings API and persistent `/settings` inventory GUI, sharing V3 choices with `/display`. |
 | Join/quit lifecycle | Async profile creation/loading on join and last-seen updates on quit. |
+| Parties (opt-in) | Transactional ephemeral parties, reconnect grace, personal invite privacy, commands, overview/invitation GUIs, interaction invites, committed member notices and moderated/rate-limited local `/pc`. Live staging acceptance is outstanding. |
 | Session state | `LOADING`, `READY`, `UNAVAILABLE`, and `CLOSED`, with login tokens and refresh revisions to reject stale callbacks. |
 | Profile service | Async API, duplicate-load coalescing, bounded worker queue, load timeouts. |
 | Failure handling | Friendly player messages; invalid configuration or database/migration failure disables the plugin at startup. |
 | Packaging | Self-contained Shadow jar with relocated PostgreSQL, HikariCP, and Flyway dependencies. |
-| Tests | 291 automated tests, including social/privacy/interaction tests and real embedded PostgreSQL; the v0.3 baseline had 209. |
+| Tests | 483 automated tests, including 181 party domain/storage/service/command/configuration/runtime/menu/disconnect/communication tests and real embedded PostgreSQL; the merged v0.4 baseline had 291. |
 | Operations | Local Docker Compose database, provisioning script, configuration and backup documentation. |
 | CI | GitHub Actions workflow for Java 25 build/tests and jar upload; v0.3 passed remotely, social branch verification pending. |
 | Neon | CLI/project setup and environment pull completed; Java integration remains unfinished. |
@@ -48,6 +49,7 @@ Username changes do not reset UUID identity, first-join date, or progression fie
 | `/display bossbar on\|off` | `club.display` (default: everyone) | Persist your bossbar visibility. |
 | `/display scoreboard on\|off` | `club.display` (default: everyone) | Persist your sidebar visibility. |
 | `/settings` | `club.settings` (default: everyone) | Open your display settings menu; left/right-click to persist a toggle. |
+| `/party [action]` | `club.party.use` (default: everyone) | Opt-in local parties, overview GUI and invitations; see [party commands](docs/parties.md#party-command-adapter). Disabled until `party.enabled` and backend readiness. |
 | `/clubadmin displays reload` | `club.admin.displays` (default: op) | Validate/reload display settings without changing database settings. |
 
 The v0.4 development branch also implements `/friend`, `/friends`, `/block`,
@@ -139,6 +141,30 @@ before deployment. No live database was migrated during development. See
 
 ## Requirements and build
 
+### v0.5 parties groundwork
+
+The `feat/parties` branch starts from merged social main `0fe22b9`. It adds
+validated immutable party/invite/privacy domain models and
+[confirmed party rules and implementation stages](docs/parties.md).
+V5 adds party storage, epoch ownership and independent invite privacy, with
+PostgreSQL-tested lease/reconciliation and privacy repositories. Transactional
+party mutations and a bounded async API now enforce membership, leadership,
+block/privacy and invite abuse limits. The party command and overview menu are
+registered after opt-in backend readiness, with paged members and guarded
+create/leave/disband. Disconnect grace defaults to five minutes, with cancellation
+of queued expiry on rejoin and a nonblocking reconnect fence for already claimed
+cleanup. Paged candidate/invitation inventories, interaction invites, committed
+member notifications and local `/pc` with moderation/rate/session safeguards are
+implemented. Client staging, moderation integration, remote CI and operational
+release gates remain outstanding.
+Startup-validated party configuration defaults off;
+enabling it starts the backend asynchronously with dedicated epoch ownership,
+lease-loss containment and ordered shutdown, then activates player controls.
+The Social Privacy submenu now persists independent Everyone/Nobody controls for
+friend requests and party invitations, including when party runtime is disabled.
+V1-V4 are unchanged, but startup **will apply V5**; this snapshot is not
+production-ready.
+
 ### v0.4 development branch
 
 This branch starts the friends milestone on top of merged v0.3. It adds
@@ -151,7 +177,7 @@ The v0.3 real-client and backup/restore gates remain open; see
 [social implementation status](docs/social.md).
 
 Local Java 25 verification passed: **291 tests, zero failures/errors/skips**.
-The development jar contains all four migrations and the five social commands;
+The merged v0.4 jar contains four migrations and the five social commands;
 the existing display engine and historical migrations are unchanged.
 
 - **Java 25** to run the Paper server and compile the plugin.
@@ -177,8 +203,8 @@ sh gradlew clean build
 sh gradlew :core:test
 ```
 
-Development output: **`core/build/libs/ClubCore-0.4.0-SNAPSHOT.jar`**.
-Starting this jar automatically applies V4. Rehearse migration and restore on
+Development output: **`core/build/libs/ClubCore-0.5.0-SNAPSHOT.jar`**.
+Starting this jar automatically applies V1-V5. Rehearse migration and restore on
 an isolated staging database first; this is not a production-approved release.
 The Shadow jar bundles the database libraries; Paper supplies its API and SLF4J.
 Dependency versions are pinned in [gradle/libs.versions.toml](gradle/libs.versions.toml),
