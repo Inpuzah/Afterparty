@@ -59,6 +59,15 @@ Flags default to true; changes are asynchronous and independent. This display
 slice does not modify V1/V2, XP, coins or audit rows. Back up before deploying the
 jar: all three migrations run automatically. See [displays.md](displays.md).
 
+The v0.4 development jar adds **V4 social tables** (`friendships`,
+`friend_requests`, `player_blocks`, `social_preferences`). Requests include a
+resolution timestamp so cooldown/rate checks survive cancellation and restart.
+V4 is additive and preserves V1-V3 data; it still applies automatically at
+startup and needs a staging backup/restore rehearsal before deployment.
+See [social persistence](social.md#persistence-and-consistency).
+Social mutations use `DELETE` as well as `SELECT`, `INSERT` and `UPDATE`;
+account for that when using a separate migration role.
+
 `player_profiles`:
 
 | Column | Description |

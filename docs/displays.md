@@ -3,6 +3,8 @@
 The v0.3 candidate keeps this display engine and adds a
 [shared settings API and inventory GUI](settings.md). `/settings` and `/display`
 use the same confirmed snapshot, V3 table and ordered persistence worker.
+The [v0.4 social development slice](social.md) adds separate V4 privacy data and
+player interaction menus without changing this engine or saved display choices.
 
 ## Features and commands
 
@@ -49,7 +51,7 @@ Reload reads YAML and validates the full display configuration off-thread before
 replacing it on the primary server thread. Invalid YAML, types, enum values,
 markup, placeholders or limits preserve the prior working configuration. A
 timed-out reload is not applied later. Reloading displays does **not** reload
-database, profile or admin-amount settings. A disconnected administrator does not
+database, profile, social or admin-amount settings. A disconnected administrator does not
 prevent a valid reload from being applied.
 
 | Setting | Default | Validation / behavior |

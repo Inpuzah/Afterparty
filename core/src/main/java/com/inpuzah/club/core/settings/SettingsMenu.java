@@ -28,10 +28,10 @@ public final class SettingsMenu {
                 List.of("Your choices are saved automatically.")));
         inventory.setItem(BOSSBAR, toggle("Bossbar", settings != null && settings.bossbarVisible(), state));
         inventory.setItem(SCOREBOARD, toggle("Sidebar", settings != null && settings.scoreboardVisible(), state));
-        inventory.setItem(INFO, item(Material.BOOK, "About settings", NamedTextColor.AQUA,
+        inventory.setItem(INFO, item(Material.BOOK, "Social Privacy", NamedTextColor.AQUA,
                 List.of("Display choices persist across reconnects and restarts.",
                         "Server-wide switches and game ownership still apply.",
-                        "Social privacy settings are not implemented yet.")));
+                        "Click to choose who can send friend requests.")));
         inventory.setItem(CLOSE, item(Material.BARRIER, "Close", NamedTextColor.RED, List.of()));
     }
 

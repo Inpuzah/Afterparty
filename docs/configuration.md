@@ -38,7 +38,7 @@ ClubCore never logs the password, and its connection URL contains no credentials
 | `database.username` | `club_app` | identifier | Least-privilege role; see [database.md](database.md). |
 | `database.password` | empty | string | Runtime-config fallback when `CLUB_DB_PASSWORD` is unset or empty. Not trimmed. |
 | `database.ssl-mode` | `prefer` | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` | Use `verify-full` when the database is on another host. |
-| `database.pool-size` | `4` | 1-20 | Shared connection limit; each of the three services has this many workers. |
+| `database.pool-size` | `4` | 1-20 | Shared connection limit; profile, XP, coin and social services each have this many workers. |
 | `database.connection-timeout-ms` | `5000` | 250-60000 | Also bounds how long startup waits when the database is down. |
 | `profile.load-timeout-ms` | `10000` | 1000-60000 | Bounds join/refresh/settings reads and command/menu response waits; does not cancel accepted JDBC mutations. |
 | `profile.show-ready-message` | `false` | `true` / `false` | Sends "Your profile is ready." on load. |
@@ -48,6 +48,14 @@ ClubCore never logs the password, and its connection URL contains no credentials
 Display settings are under `displays`, with defaults inherited by existing
 runtime configurations. See [displays.md](displays.md) for all settings, markup
 validation and the display-only `/clubadmin displays reload` command.
+
+The v0.4 development slice adds `social.interactions-enabled` (boolean, default
+`true`) to enable sneak-right-click player menus, `social.requests-per-minute` (default 5, bounds
+1-100), `social.incoming-limit` (25, bounds 1-1000) and
+`social.retry-cooldown-seconds` (30, bounds 1-86400). Existing configs inherit
+these defaults. They apply transactionally in PostgreSQL and require a restart
+to change; display-only reload does not reload social settings. Requests expire
+after a fixed seven days. See [social limits](social.md#limits).
 
 The [player settings menu](settings.md) adds no configuration keys. Its visibility
 choices live in PostgreSQL V3, not YAML; server-wide switches do not erase them.

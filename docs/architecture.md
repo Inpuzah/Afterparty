@@ -31,6 +31,7 @@ PlayerSessionListener / ProfileCommand / BalanceCommand / ClubAdminCommand
 | `command` | Cached `/profile`, async authoritative `/balance`, permission-controlled `/clubadmin`. |
 | `display` | Shared animation task, per-viewer bossbar/sidebar, cached placeholders, validated config and async persistent preferences. |
 | `settings` | Immutable choices, one settings-session cache, async mutation API and `/settings` GUI. Reuses the V3 display repository/worker. |
+| `social` | v0.4 development: transactional friendship/block/privacy repository, bounded async service and paged player commands. |
 
 ## Threading rules
 
@@ -119,6 +120,25 @@ callbacks can alter UI. Menus close before settings workers drain on disable.
 See [settings.md](settings.md) and the [V3 reuse decision](decisions/0002-unified-player-settings.md).
 
 ## Error categories
+
+The [social development slice](social.md) uses explicit async reads on social
+actions, with no global friend-graph cache or display-loop database polling.
+Pair writers lock profile rows in PostgreSQL UUID order before checking blocks,
+privacy, rate/inbox limits and relationship state. Privacy writers lock the same
+owner profile. One transaction owns each relationship change; the service is
+drained before the database closes. Presence and command replies run only on the
+Paper thread through `CommandFeedback`. Social Privacy is a separate settings
+submenu using the same social preference service and V4 table. It retains
+confirmed choices while saving and orders reads after pending UI writes across
+close/rejoin. Exact holder, player object and login checks protect every callback.
+Sneak-right-click opens a holder-bound interaction menu with cached target profile
+data and an explicit asynchronous pair relationship read. The read uses the same
+ordered profile locks as writers for a coherent snapshot, without exposing the
+other player's block. Clicks submit the explicit action that was rendered, never
+a recomputed toggle; transactional mutations revalidate current state. Accepted
+menu writes are retained across close/rejoin, and subsequent menu reads wait for
+them. Viewer/target login checks, deferred actions, inventory movement cancellation
+and quit/disable cleanup reject stale UI. There is no per-menu repeating task.
 
 | Situation | Signal | Player sees |
 |---|---|---|

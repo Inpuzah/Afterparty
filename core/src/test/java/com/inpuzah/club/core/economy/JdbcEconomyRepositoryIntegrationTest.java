@@ -79,7 +79,7 @@ class JdbcEconomyRepositoryIntegrationTest {
 
     @BeforeEach
     void reset() throws SQLException {
-        execute("TRUNCATE display_preferences, currency_transactions, experience_awards, player_profiles");
+        execute("TRUNCATE friendships, friend_requests, player_blocks, social_preferences, display_preferences, currency_transactions, experience_awards, player_profiles");
         repository = new JdbcEconomyRepository(dataSource);
         playerId = UUID.randomUUID();
         insertPlayer(playerId);

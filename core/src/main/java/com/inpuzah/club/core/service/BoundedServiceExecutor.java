@@ -78,7 +78,7 @@ public final class BoundedServiceExecutor {
         executor.shutdownNow();
         for (CompletableFuture<?> future : unresolved) {
             future.completeExceptionally(unavailable.apply(
-                    "Service shutdown deadline reached; an in-flight commit may still have succeeded. Retry the same operation ID."));
+                    "Service shutdown deadline reached; an in-flight commit may still have succeeded. Check persisted state before retrying."));
         }
         return unresolved.length;
     }
