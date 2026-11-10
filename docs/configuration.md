@@ -60,6 +60,61 @@ after a fixed seven days. See [social limits](social.md#limits).
 The [player settings menu](settings.md) adds no configuration keys. Its visibility
 choices live in PostgreSQL V3, not YAML; server-wide switches do not erase them.
 
+### Party groundwork (v0.5 snapshot)
+
+Party configuration is validated at startup, including when disabled. Missing
+keys inherit these defaults. Setting `party.enabled: true` starts the backend
+and epoch lease asynchronously, then activates `/party`, disconnect grace and the
+overview/invitation GUIs, interaction-menu invites and `/pc` on the server thread.
+Leave it false outside isolated
+development/staging. Personal party-invite privacy is available in Social Privacy
+independently of these flags and is persisted in V5, not YAML.
+
+| Key | Default | Allowed |
+|---|---|---|
+| `party.enabled` | `false` | boolean; activates local parties after backend readiness |
+| `party.owner-id` | `lobby-1` | 1-64 letters, digits, underscores or hyphens; stable across restarts |
+| `party.direct-host` | `database.host` | hostname, IPv4, `[IPv6]`; known `-pooler` hosts rejected when enabled |
+| `party.direct-port` | `database.port` | 1-65535 |
+| `party.max-members` | `8` | 2-32 |
+| `party.invite-expiry-seconds` | `120` | 1-3600 |
+| `party.disconnect-grace-seconds` | `300` | 1-3600 |
+| `party.invites-per-minute` | `5` | 1-100 distinct targets |
+| `party.max-pending-invites` | `10` | 1-100 per party |
+| `party.same-target-cooldown-seconds` | `30` | 1-86400 |
+| `party.menu-enabled` | `true` | boolean; false retains commands, no-argument `/party` directs to help |
+| `party.chat-enabled` | `true` | boolean; enables local `/pc` independently of the menus |
+
+`club.party.use` and `club.party.chat` default to true. The explicit denial
+permission `club.party.muted` defaults to false and prevents sending, not receiving.
+External moderation can cancel the synchronous `PartyChatEvent`; global-chat mute
+plugins are not automatically integrated. Wire their policy before staging signoff.
+Chat has a fixed one-message/second limit, one pending delivery/player, and a
+256 UTF-16-code-unit maximum with control/format/line-separator rejection.
+
+The lease datasource uses a dedicated physical PostgreSQL connection,
+not Hikari. It inherits database name, role, password and SSL mode from `database`;
+only host/port may differ, and both endpoints must reach the same database/schema.
+It uses the database connection timeout rounded up to seconds and a ten-second
+socket timeout. **Never use transaction pooling for the lease**, even if its
+hostname is not recognizable as a pooler. No pooled hostname is rewritten or
+guessed. Disabled existing pooled installations remain valid. Multi-server
+shared party storage is not supported in this milestone. Restart is required
+for configuration changes; display-only reload does not reload these keys.
+Startup checks database/schema and predecessor epoch agreement before
+reconciliation, then confirms that the application endpoint can see the new
+epoch before publishing the service. A five-second shared background heartbeat
+and per-operation checks fail closed on lease loss. No automatic reacquisition
+occurs; investigate and restart. A party startup/lease failure is logged and
+disables party work, not the existing social/profile/economy services.
+One FIFO party worker uses the shared pool, preserving older accepted writes
+before later disconnect cleanup. One shared 20-tick server sweep submits at most
+16 departures per pass, with at most 16 outstanding. Reconnect cancels unclaimed
+cleanup even after it was queued. If removal already claimed the expired login
+inside its transaction, new party actions wait asynchronously for that result.
+Cleanup errors stop parties and close their epoch rather than retrying an
+uncertain removal against another membership. Restart is required to re-enable.
+
 Existing configurations without `admin-commands` remain valid and default to no
 per-command limit, as requested. To enable safety limits, add the section and
 restart; there is no config reload command yet. Positive whole amounts, lifetime
@@ -75,6 +130,11 @@ All ClubCore log lines are prefixed `[ClubCore]`. Bundled libraries log under `c
 | `Database: DatabaseConfig[url=..., username=...]` | Effective settings (no password). |
 | `Schema migration complete: N migration(s) applied, schema version V` | Flyway succeeded. |
 | `Profile, progression and economy services ready` | Startup finished; profiles and new commands are registered. |
+| `Party backend ready for owner ...; server-thread control activation may now proceed` | Asynchronous epoch/service startup succeeded. |
+| `Party commands and disconnect lifecycle ready; overview menu enabled=...` | Party controls activated on the server thread. |
+| `Party disconnect lifecycle unavailable; stopping parties until restart` | Grace cleanup failed; party access stops and epoch cleanup follows. Other core services remain available. |
+| `Party runtime failed; party work stopped until restart...` | Party startup/lease verification failed. Fix endpoint/owner/DB connectivity and restart; other ClubCore services are not disabled by this failure. |
+| `Party shutdown still pending...` | Main-thread shutdown wait expired; background cleanup keeps the lease until workers terminate, then closes the epoch. |
 | `Invalid configuration: ...; disabling ClubCore.` | Fix `config.yml` or set `CLUB_DB_PASSWORD`. |
 | `Could not connect to or migrate the database; disabling ClubCore.` | Check host, port, credentials, `pg_hba.conf`, migration errors (stack trace follows). |
 | `Profile load for X (uuid) timed out after N ms` | Database slow or overloaded. |

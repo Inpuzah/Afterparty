@@ -68,6 +68,22 @@ See [social persistence](social.md#persistence-and-consistency).
 Social mutations use `DELETE` as well as `SELECT`, `INSERT` and `UPDATE`;
 account for that when using a separate migration role.
 
+The v0.5 development jar additionally applies **V5 party storage**:
+`party_instances`, `party_owners`, `parties`, `party_members`, `party_invites`
+and `party_preferences`. It preserves V1-V4. Deferred membership constraints
+enforce an active leader/capacity and prevent active membership in closed parties;
+the partial unique player index prevents multiple active parties. PL/pgSQL
+constraint functions/triggers are created by the schema-owning migration role.
+Party preferences are separate from existing friend/display choices. The Social
+Privacy submenu now reads both friend/party policies through the bounded social
+service and saves each independently; privacy snapshots and writes share the
+owner profile-row lock with block/invitation checks.
+The epoch lease requires a dedicated **direct** PostgreSQL session, not a pooled
+transaction endpoint. Backend epoch/service lifecycle starts asynchronously only
+when `party.enabled` is true; V5 still applies at plugin startup even when false.
+Commands, overview menu and disconnect grace activate after backend readiness.
+See [party storage and deployment warning](parties.md).
+
 `player_profiles`:
 
 | Column | Description |

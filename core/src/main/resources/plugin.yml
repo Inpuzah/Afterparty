@@ -6,6 +6,14 @@ description: Core player identity and persistence services
 author: Inpuzah
 
 commands:
+  pc:
+    description: Send a private message to your current local party
+    usage: /pc <message>
+    permission: club.party.chat
+  party:
+    description: Manage your local party and invitations
+    usage: /party help
+    permission: club.party.use
   profile:
     description: Display your Club profile
     usage: /profile
@@ -47,6 +55,15 @@ commands:
     permission: club.social.use
 
 permissions:
+  club.party.chat:
+    description: Send and receive local party chat
+    default: true
+  club.party.muted:
+    description: Deny sending party messages (assign explicitly to muted players)
+    default: false
+  club.party.use:
+    description: Create and manage your own local party
+    default: true
   club.social.use:
     description: Manage your own friendships and blocks
     default: true

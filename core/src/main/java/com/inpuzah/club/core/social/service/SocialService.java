@@ -20,5 +20,6 @@ public interface SocialService {
     CompletableFuture<List<FriendSummary>> listBlocked(UUID player, int offset, int limit);
     CompletableFuture<SocialPreferences> preferences(UUID player);
     CompletableFuture<SocialPreferences> setPreferences(UUID player, boolean requestsEnabled);
+    CompletableFuture<SocialPreferences> setPartyPreferences(UUID player, boolean invitesEnabled);
     int shutdown(Duration timeout) throws InterruptedException;
 }

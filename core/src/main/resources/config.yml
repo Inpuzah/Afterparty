@@ -38,6 +38,22 @@ social:
   incoming-limit: 25
   retry-cooldown-seconds: 30
 
+party:
+  # Opt-in parties, disconnect grace, invitation menus and private local chat.
+  enabled: false
+  # Stable across restarts. Do not share one database/schema across Paper servers.
+  owner-id: "lobby-1"
+  # direct-host/direct-port may override database.host/port for the dedicated epoch session.
+  # Never use a transaction-pooler endpoint for that session.
+  max-members: 8
+  invite-expiry-seconds: 120
+  disconnect-grace-seconds: 300
+  invites-per-minute: 5
+  max-pending-invites: 10
+  same-target-cooldown-seconds: 30
+  menu-enabled: true
+  chat-enabled: true
+
 displays:
   enabled: true
   server: "lobby-1"

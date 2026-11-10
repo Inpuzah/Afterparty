@@ -287,6 +287,7 @@ class SocialCommandTest {
         }
         @Override public CompletableFuture<SocialPreferences> preferences(UUID player) { throw new AssertionError(); }
         @Override public CompletableFuture<SocialPreferences> setPreferences(UUID player, boolean enabled) { throw new AssertionError(); }
+        @Override public CompletableFuture<SocialPreferences> setPartyPreferences(UUID player, boolean enabled) { throw new AssertionError(); }
         @Override public int shutdown(Duration timeout) { throw new AssertionError(); }
     }
 }

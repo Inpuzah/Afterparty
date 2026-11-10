@@ -128,7 +128,10 @@ privacy, rate/inbox limits and relationship state. Privacy writers lock the same
 owner profile. One transaction owns each relationship change; the service is
 drained before the database closes. Presence and command replies run only on the
 Paper thread through `CommandFeedback`. Social Privacy is a separate settings
-submenu using the same social preference service and V4 table. It retains
+submenu using the same bounded social preference service, V4 friend privacy and
+V5 party-invite privacy. Both choices are returned as one immutable snapshot under
+the owner's profile lock; each setter writes only its own flag and reuses the
+existing party preference persistence path. It retains
 confirmed choices while saving and orders reads after pending UI writes across
 close/rejoin. Exact holder, player object and login checks protect every callback.
 Sneak-right-click opens a holder-bound interaction menu with cached target profile
@@ -139,6 +142,47 @@ a recomputed toggle; transactional mutations revalidate current state. Accepted
 menu writes are retained across close/rejoin, and subsequent menu reads wait for
 them. Viewer/target login checks, deferred actions, inventory movement cancellation
 and quit/disable cleanup reject stale UI. There is no per-menu repeating task.
+
+The [party development backend](parties.md#transactional-repository-and-async-service)
+adds V5 and a Bukkit-free repository/service. A dedicated direct PostgreSQL lease
+owns the server epoch. Repository calls verify it and lock the active epoch row
+before ordered profile locks, conservatively serializing this server's party
+operations and fencing closure. Block/privacy checks share V4 profile locks.
+Auto-create/invite and acceptance are transactional; immutable snapshots and
+revisioned mutations are exposed through bounded async workers. This subsystem
+has startup-validated opt-in configuration, personal privacy and an asynchronous
+`PartyRuntime`. The runtime acquires matching application/direct endpoint ownership
+before publishing its service, checks lease health off-thread every five seconds
+and before work, and rejects new/queued work after failure or stop. It never
+reacquires automatically. Cleanup drains workers before epoch close; if futures
+are abandoned at the deadline, ownership stays held until actual workers exit.
+Plugin shutdown bounds its wait and logs pending/failed cleanup before closing
+the shared pool. The staged holder-bound party overview menu uses the bounded
+service for reads/mutations, preserves pending writes across close/rejoin and
+requires exact party ID/revision inside leave/disband transactions. Controls are
+registered on the server thread after opt-in backend startup. One FIFO party
+worker orders older accepted writes before grace cleanup; the shared one-second
+server sweep submits at most 16 departures per pass/outstanding. An atomic
+departure claim under transaction locks competes with reconnect cancellation.
+If cleanup claimed first, a new login's party admission waits on its result,
+without blocking Paper or affecting profile readiness. Errors stop parties
+rather than blindly retrying uncertain removal. Candidate and incoming-invitation
+inventories preserve exact target login tokens/invite UUIDs and pending writes.
+Commands and interaction/candidate menus share one invitation entry point and
+original-recipient-session notifications. The FIFO worker captures committed
+membership changes for main-thread join/leave/kick/leadership/closure notices.
+No speculative menu or rejected mutation emits a membership notice.
+
+Local `/pc` delivery uses `withParty`: the worker holds the epoch/profile transaction
+locks while a main-thread callback revalidates sender/recipients and applies the
+cancellable `PartyChatEvent`. No SQL runs on Paper. Committed removals/disbands
+cannot overtake delivery. A callback not started within two seconds is cancelled
+before the lock is released; once started, ownership remains held until it finishes.
+Moderation listeners must not synchronously wait for party futures or perform
+blocking I/O. There is no chat history, global broadcast or content persistence.
+Permissions, explicit mute denial, single pending/player and rate/length/control
+limits apply before submission and at delivery. An external moderator must wire
+its own global mute policy to the event/denial permission.
 
 | Situation | Signal | Player sees |
 |---|---|---|

@@ -138,15 +138,16 @@ public final class PrivacyMenuController implements Listener, AutoCloseable {
             return;
         }
         int slot = event.getRawSlot();
-        if (slot != PrivacyMenu.REQUESTS && slot != PrivacyMenu.BACK && slot != PrivacyMenu.CLOSE) {
+        boolean privacyAction = slot == PrivacyMenu.REQUESTS || slot == PrivacyMenu.PARTY_INVITES;
+        if (!privacyAction && slot != PrivacyMenu.BACK && slot != PrivacyMenu.CLOSE) {
             return;
         }
-        if (slot == PrivacyMenu.REQUESTS && (pending.containsKey(holder.playerId)
+        if (privacyAction && (pending.containsKey(holder.playerId)
                 || holder.state == PrivacyMenu.State.LOADING || holder.state == PrivacyMenu.State.SAVING)) {
             message(player, "Privacy settings are loading or saving. Wait for confirmation.");
             return;
         }
-        if (holder.actionQueued && slot == PrivacyMenu.REQUESTS) {
+        if (holder.actionQueued && privacyAction) {
             return;
         }
         holder.actionQueued = true;
@@ -172,15 +173,17 @@ public final class PrivacyMenuController implements Listener, AutoCloseable {
         } else if (holder.state == PrivacyMenu.State.UNAVAILABLE) {
             load(player, holder);
         } else {
-            save(player, holder);
+            save(player, holder, slot);
         }
     }
 
-    private void save(Player player, PrivacyMenuHolder holder) {
+    private void save(Player player, PrivacyMenuHolder holder, int slot) {
         holder.state = PrivacyMenu.State.SAVING;
         ++holder.revision;
         render(player, holder);
-        var result = service.setPreferences(holder.playerId, !holder.confirmed.friendRequestsEnabled());
+        var result = slot == PrivacyMenu.PARTY_INVITES
+                ? service.setPartyPreferences(holder.playerId, !holder.confirmed.partyInvitesEnabled())
+                : service.setPreferences(holder.playerId, !holder.confirmed.friendRequestsEnabled());
         pending.put(holder.playerId, result);
         result.whenCompleteAsync((value, error) -> {
             if (closed) {

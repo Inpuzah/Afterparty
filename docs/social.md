@@ -57,6 +57,7 @@ Ownership uses the inventory holder, not the title.
 | 13 | Read-only summary: level, lifetime XP, Club Coins and relationship. |
 | 15 | Block or unblock, based only on your own directional block. |
 | 22 | Close, including while a save is pending. |
+| 24 | Party Invite: the exact target login, when the opt-in party runtime is ready. |
 
 Loading, saving and unavailable states never pretend to be a confirmed
 relationship. Click an unavailable action to retry the read. Actions are deferred,
@@ -72,6 +73,13 @@ closes the menu. Viewer and target login tokens prevent a new session from
 receiving an old menu action. Successful new requests/acceptances notify the
 other player's original online session, never duplicates or private rejections.
 No graph cache, database work on the Paper thread or repeating menu timer is added.
+
+Party Invite is independent of friendship actions and uses the shared party
+invitation adapter. It checks party permission, readiness and reconnect admission;
+the V5 repository rechecks blocks, invite privacy, capacity, leader and rate limits.
+It preserves pending writes across reopen/rejoin and only notifies the original
+target session after a new invitation commits. Disabled parties produce explicit
+unavailability instead of changing friend/block state.
 
 ## Persistence and consistency
 
@@ -102,6 +110,14 @@ persist `NOBODY` as `friend_requests_enabled=false`. This belongs in V4
 Social Privacy to change this choice. The submenu uses this same service,
 confirmed values and pending/error states, with no second database write path.
 See [privacy menu behavior](settings.md#social-privacy-submenu).
+
+The v0.5 snapshot extends that same bounded service with independent
+`partyInvitesEnabled` in `SocialPreferences` and `setPartyPreferences(uuid, enabled)`.
+Both privacy choices are loaded/returned together under the owner's profile lock,
+but each setter writes only its own flag. Party privacy uses V5 `party_preferences`
+through the existing party preference repository; V4 and V3 are unchanged.
+This personal control is available before party runtime registration.
+See [party implementation status](parties.md#configuration-and-personal-invite-privacy).
 
 `plugin.socialService()` exposes the asynchronous API. Mutations return a typed
 `SocialResult` only after commit, or an exceptional future on storage/service

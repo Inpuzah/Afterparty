@@ -1,6 +1,7 @@
 package com.inpuzah.club.core.social.repository;
 
 import com.inpuzah.club.core.repository.ProfileStorageException;
+import com.inpuzah.club.core.party.repository.JdbcPartyPreferencesRepository;
 import com.inpuzah.club.core.social.SocialConfig;
 import com.inpuzah.club.core.social.model.FriendRequest;
 import com.inpuzah.club.core.social.model.FriendSummary;
@@ -259,7 +260,7 @@ public final class JdbcSocialRepository implements SocialRepository {
         Objects.requireNonNull(player, "player");
         return transaction(connection -> {
             requirePlayer(connection, player);
-            return new SocialPreferences(player, enabled(connection, player));
+            return privacySnapshot(connection, player);
         });
     }
 
@@ -273,8 +274,23 @@ public final class JdbcSocialRepository implements SocialRepository {
                     ON CONFLICT (player_uuid) DO UPDATE SET friend_requests_enabled = EXCLUDED.friend_requests_enabled,
                     updated_at = NOW()
                     """, player, requestsEnabled);
-            return new SocialPreferences(player, requestsEnabled);
+            return privacySnapshot(connection, player);
         });
+    }
+
+    @Override
+    public SocialPreferences setPartyPreferences(UUID player, boolean invitesEnabled) {
+        Objects.requireNonNull(player, "player");
+        return transaction(connection -> {
+            requirePlayer(connection, player);
+            JdbcPartyPreferencesRepository.saveLocked(connection, player, invitesEnabled);
+            return privacySnapshot(connection, player);
+        });
+    }
+
+    private SocialPreferences privacySnapshot(Connection connection, UUID player) throws SQLException {
+        boolean invites = JdbcPartyPreferencesRepository.readLocked(connection, player).invitesEnabled();
+        return new SocialPreferences(player, enabled(connection, player), invites);
     }
 
     private void requirePlayer(Connection connection, UUID player) throws SQLException {

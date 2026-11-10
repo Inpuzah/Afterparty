@@ -19,6 +19,7 @@ final class PlayerInteractionMenu {
     static final int SUMMARY = 13;
     static final int BLOCK = 15;
     static final int CLOSE = 22;
+    static final int PARTY = 24;
     enum State { LOADING, READY, SAVING, UNAVAILABLE }
 
     private PlayerInteractionMenu() {}
@@ -66,6 +67,9 @@ final class PlayerInteractionMenu {
                 ? relationship == Relationship.BLOCKED ? "Unblock player" : "Block player" : status,
                 "Blocking removes friendship and pending requests."));
         inventory.setItem(CLOSE, item(Material.RED_STAINED_GLASS_PANE, "Close"));
+        inventory.setItem(PARTY, item(Material.OAK_SIGN, "Party Invite",
+                "Invite this exact online session.", "Requires enabled parties and club.party.use.",
+                "Party privacy and blocks are checked when saving."));
     }
 
     private static ItemStack item(Material material, String name, String... lore) {

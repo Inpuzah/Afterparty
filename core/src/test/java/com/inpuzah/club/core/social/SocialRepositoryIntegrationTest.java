@@ -58,7 +58,7 @@ class SocialRepositoryIntegrationTest {
     static void start() throws Exception {
         postgres = EmbeddedPostgres.builder().start();
         source = postgres.getPostgresDatabase();
-        assertEquals("4", Migrations.apply(source, SocialRepositoryIntegrationTest.class.getClassLoader()).targetSchemaVersion);
+        assertEquals("5", Migrations.apply(source, SocialRepositoryIntegrationTest.class.getClassLoader()).targetSchemaVersion);
     }
 
     @AfterAll
@@ -66,11 +66,58 @@ class SocialRepositoryIntegrationTest {
 
     @BeforeEach
     void reset() throws Exception {
-        sql(source, "TRUNCATE friendships, friend_requests, player_blocks, social_preferences, "
+        sql(source, "TRUNCATE party_invites, party_members, parties, party_owners, party_instances, party_preferences, "
+                + "friendships, friend_requests, player_blocks, social_preferences, "
                 + "display_preferences, experience_awards, currency_transactions, player_profiles");
         a = player("Alice");
         b = player("Bob");
         repository = new JdbcSocialRepository(source, SocialConfig.DEFAULT, clock);
+    }
+
+    @Test
+    void combinedPrivacySnapshotHasIndependentSavePathsAndNoWritesOnDefaultRead() throws Exception {
+        assertEquals(new SocialPreferences(a, true, true), repository.preferences(a));
+        assertEquals(0, scalar("SELECT count(*) FROM party_preferences"));
+        assertEquals(new SocialPreferences(a, true, false), repository.setPartyPreferences(a, false));
+        assertEquals(new SocialPreferences(a, false, false), repository.setPreferences(a, false));
+        assertEquals(new SocialPreferences(a, false, true), repository.setPartyPreferences(a, true));
+        assertEquals(new SocialPreferences(a, false, true),
+                new JdbcSocialRepository(source, SocialConfig.DEFAULT, clock).preferences(a));
+        assertEquals(0, scalar("SELECT count(*) FROM display_preferences"));
+        assertEquals(SocialException.Code.PLAYER_NOT_FOUND,
+                assertThrows(SocialException.class, () -> repository.setPartyPreferences(UUID.randomUUID(), false)).code());
+        assertThrows(NullPointerException.class, () -> repository.setPartyPreferences(null, false));
+    }
+
+    @Test
+    void combinedPrivacyWritesSerializeWithoutOverwritingIndependentChoice() throws Exception {
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var friends = pool.submit(() -> { start.await(); return repository.setPreferences(a, false); });
+            var parties = pool.submit(() -> { start.await(); return repository.setPartyPreferences(a, false); });
+            start.countDown();
+            friends.get(5, TimeUnit.SECONDS);
+            parties.get(5, TimeUnit.SECONDS);
+        }
+        assertEquals(new SocialPreferences(a, false, false), repository.preferences(a));
+    }
+
+    @Test
+    void socialPartyPrivacyFailureRollsBackAndNeverChangesFriendChoice() throws Exception {
+        repository.setPreferences(a, false);
+        repository.setPartyPreferences(a, false);
+        sql(source, """
+                CREATE FUNCTION reject_social_party_privacy() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'injected'; END $$;
+                CREATE TRIGGER reject_social_party_privacy BEFORE UPDATE ON party_preferences
+                FOR EACH ROW EXECUTE FUNCTION reject_social_party_privacy();
+                """);
+        try {
+            assertThrows(ProfileStorageException.class, () -> repository.setPartyPreferences(a, true));
+            assertEquals(new SocialPreferences(a, false, false), repository.preferences(a));
+        } finally {
+            sql(source, "DROP TRIGGER reject_social_party_privacy ON party_preferences; DROP FUNCTION reject_social_party_privacy()");
+        }
     }
 
     @Test
@@ -285,8 +332,8 @@ class SocialRepositoryIntegrationTest {
         sql(isolated, "INSERT INTO player_profiles(uuid,username,coins,experience) VALUES ('" + a + "','Alice',321,123)");
         sql(isolated, "INSERT INTO display_preferences(player_uuid,show_bossbar,show_scoreboard) VALUES ('" + a + "',false,true)");
         var result = Migrations.apply(isolated, getClass().getClassLoader());
-        assertEquals(1, result.migrationsExecuted);
-        assertEquals("4", result.targetSchemaVersion);
+        assertEquals(2, result.migrationsExecuted);
+        assertEquals("5", result.targetSchemaVersion);
         assertEquals(0, Migrations.apply(isolated, getClass().getClassLoader()).migrationsExecuted);
         try (var connection = isolated.getConnection(); var query = connection.createStatement();
              var rows = query.executeQuery("SELECT coins,experience,show_bossbar,show_scoreboard FROM player_profiles "
