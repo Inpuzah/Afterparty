@@ -4,6 +4,7 @@ import com.inpuzah.club.core.command.CommandFeedback;
 import com.inpuzah.club.core.command.DisplayCommand;
 import com.inpuzah.club.core.model.PlayerProfile;
 import com.inpuzah.club.core.session.ProfileSessionManager;
+import com.inpuzah.club.core.settings.DefaultPlayerSettingsService;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -121,6 +122,7 @@ class DisplayManagerTest {
         default -> throw new AssertionError(method);
     });
     private DisplayManager manager;
+    private DefaultPlayerSettingsService settings;
     private DisplayReloadService reloads;
 
     @AfterEach
@@ -364,7 +366,7 @@ class DisplayManagerTest {
         Files.writeString(file, DisplayConfigTest.defaults().saveToString());
         reloads = new DisplayReloadService(file.toFile(), () -> getClass().getResourceAsStream("/config.yml"));
         var feedback = new CommandFeedback(server, sessions, Runnable::run);
-        var command = new DisplayCommand(manager, reloads, feedback, LoggerFactory.getLogger(getClass()), 1000);
+        var command = new DisplayCommand(manager, settings, reloads, feedback, LoggerFactory.getLogger(getClass()), 1000);
         CommandSender console = proxy(CommandSender.class, this::sender);
         command.onCommand(console, null, "", new String[]{"status"});
         assertTrue(messages.getLast().contains("player"));
@@ -381,6 +383,14 @@ class DisplayManagerTest {
         command.onCommand(player.api, null, "", new String[]{"bossbar", "off"});
         ready();
         assertEquals(new DisplayPreferences(false, true), stored.get(player.id));
+        assertFalse(settings.cached(player.id).orElseThrow().bossbarVisible());
+        settings.setScoreboardVisible(player.id, false).get(5, TimeUnit.SECONDS);
+        ready();
+        command.onCommand(player.api, null, "", new String[]{"status"});
+        assertTrue(messages.getLast().contains("bossbar off, scoreboard off"));
+        assertEquals(new DisplayPreferences(false, false), manager.current(player.id));
+        assertTrue(player.bars.isEmpty());
+        assertSame(player.original.api, player.current);
         assertEquals(List.of("off"), command.onTabComplete(player.api, null, "", new String[]{"bossbar", "of"}));
     }
 
@@ -396,7 +406,7 @@ class DisplayManagerTest {
         reloads = new DisplayReloadService(file.toFile(), () -> getClass().getResourceAsStream("/config.yml"));
         var actions = new ConcurrentLinkedQueue<Runnable>();
         var feedback = new CommandFeedback(server, sessions, actions::add);
-        var command = new DisplayCommand(manager, reloads, feedback, LoggerFactory.getLogger(getClass()), 1000);
+        var command = new DisplayCommand(manager, settings, reloads, feedback, LoggerFactory.getLogger(getClass()), 1000);
         command.admin(player.api, new String[]{"displays", "reload"});
         quit(player);
         reloads.load().get(5, TimeUnit.SECONDS);
@@ -437,7 +447,9 @@ class DisplayManagerTest {
     private void start() throws Exception { start(DisplayConfig.load(DisplayConfigTest.defaults())); }
 
     private void start(DisplayConfig config) {
-        manager = new DisplayManager(server, sessions, preferences, config, LoggerFactory.getLogger(getClass()), 1000);
+        settings = new DefaultPlayerSettingsService(preferences, sessions, Duration.ofSeconds(1), LoggerFactory.getLogger(getClass()));
+        manager = new DisplayManager(server, sessions, settings, config);
+        settings.observe(manager::markDirty);
         sessions.observe(manager::markDirty);
         manager.start(proxy(Plugin.class, (method, args) -> { throw new AssertionError(method); }));
     }

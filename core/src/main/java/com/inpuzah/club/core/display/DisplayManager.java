@@ -2,6 +2,8 @@ package com.inpuzah.club.core.display;
 
 import com.inpuzah.club.core.session.ProfileSessionManager;
 import com.inpuzah.club.core.session.SessionState;
+import com.inpuzah.club.core.settings.DefaultPlayerSettingsService;
+import com.inpuzah.club.core.settings.PlayerSettingsService;
 import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
@@ -17,7 +19,6 @@ import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
-import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,37 +29,29 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
 
-/** All viewer/Bukkit mutations run on the server thread; workers only enqueue completions and UUIDs. */
+/** All viewer/Bukkit mutations run on the server thread; workers only mark UUIDs dirty. */
 public final class DisplayManager implements Listener, AutoCloseable {
     private final Server server;
     private final ProfileSessionManager sessions;
-    private final DisplayPreferenceService preferences;
-    private final Logger logger;
-    private final long timeoutMillis;
+    private final DefaultPlayerSettingsService settings;
     private final Map<UUID, Viewer> viewers = new HashMap<>();
     private final Set<UUID> dirty = ConcurrentHashMap.newKeySet();
-    private final ConcurrentLinkedQueue<Runnable> completions = new ConcurrentLinkedQueue<>();
     private final Set<UUID> suppressed = new HashSet<>();
     private DisplayConfig config;
     private BukkitTask task;
     private long tick;
-    private long nextToken;
     private volatile boolean closed;
     private long lastUpdateNanos;
     private int bossFrame;
     private int titleFrame;
 
-    public DisplayManager(Server server, ProfileSessionManager sessions, DisplayPreferenceService preferences,
-                          DisplayConfig config, Logger logger, long timeoutMillis) {
+    public DisplayManager(Server server, ProfileSessionManager sessions, DefaultPlayerSettingsService settings,
+                          DisplayConfig config) {
         this.server = server;
         this.sessions = sessions;
-        this.preferences = preferences;
+        this.settings = settings;
         this.config = config;
-        this.logger = logger;
-        this.timeoutMillis = timeoutMillis;
     }
 
     public void start(Plugin plugin) {
@@ -117,50 +110,22 @@ public final class DisplayManager implements Listener, AutoCloseable {
     }
 
     public DisplayPreferences current(UUID uuid) {
-        Viewer viewer = viewers.get(uuid);
-        return viewer == null ? null : viewer.preferences;
+        return settings.cached(uuid).map(value ->
+                new DisplayPreferences(value.bossbarVisible(), value.scoreboardVisible())).orElse(null);
     }
 
     public boolean busy(UUID uuid) {
-        Viewer viewer = viewers.get(uuid);
-        return viewer == null || viewer.saving || viewer.loading || viewer.preferences == null
+        return settings.state(uuid) != PlayerSettingsService.State.READY
                 || sessions.get(uuid).filter(session -> session.state() == SessionState.READY).isEmpty();
     }
 
     public CompletableFuture<DisplayPreferences> toggle(UUID uuid, boolean bossbar, boolean enabled) {
-        Viewer viewer = viewers.get(uuid);
-        if (viewer == null || busy(uuid)) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Display preferences are loading or unavailable."));
-        }
-        viewer.saving = true;
-        long token = viewer.token;
-        CompletableFuture<DisplayPreferences> saved = preferences.save(uuid, bossbar, enabled);
-        // Observe the original request, not the command's timeout copy: a late successful save still updates UI.
-        saved.whenComplete((value, error) -> enqueue(() -> {
-            Viewer current = viewer(uuid, token);
-            if (current == null) {
-                return;
-            }
-            current.saving = false;
-            if (error == null) {
-                current.preferences = value;
-                markDirty(uuid);
-                render(current, server.getOnlinePlayers().size(), true);
-            } else {
-                current.preferences = null;
-                release(current);
-                logger.warn("Display preference save outcome uncertain for {}; reload preferences before another toggle", uuid, error);
-                load(current);
-            }
-        }));
-        return saved.copy();
+        return (bossbar ? settings.setBossbarVisible(uuid, enabled) : settings.setScoreboardVisible(uuid, enabled))
+                .thenApply(value -> new DisplayPreferences(value.bossbarVisible(), value.scoreboardVisible()));
     }
 
     public void retryPreferences(UUID uuid) {
-        Viewer viewer = viewers.get(uuid);
-        if (viewer != null && !viewer.loading && !viewer.saving && viewer.preferences == null) {
-            load(viewer);
-        }
+        settings.get(uuid);
     }
 
     private void attach(Player player) {
@@ -168,8 +133,9 @@ public final class DisplayManager implements Listener, AutoCloseable {
             return;
         }
         detach(player.getUniqueId());
-        Viewer viewer = new Viewer(player, ++nextToken);
+        Viewer viewer = new Viewer(player);
         viewers.put(player.getUniqueId(), viewer);
+        settings.begin(player.getUniqueId());
         markDirty(player.getUniqueId());
     }
 
@@ -180,47 +146,11 @@ public final class DisplayManager implements Listener, AutoCloseable {
         }
         dirty.remove(uuid);
         suppressed.remove(uuid);
-    }
-
-    private Viewer viewer(UUID uuid, long token) {
-        Viewer current = viewers.get(uuid);
-        return current != null && current.token == token ? current : null;
-    }
-
-    private void load(Viewer viewer) {
-        viewer.loading = true;
-        UUID uuid = viewer.player.getUniqueId();
-        long token = viewer.token;
-        preferences.load(uuid).orTimeout(timeoutMillis, TimeUnit.MILLISECONDS).whenComplete((value, error) ->
-                enqueue(() -> {
-                    Viewer current = viewer(uuid, token);
-                    if (current == null) {
-                        return;
-                    }
-                    current.loading = false;
-                    if (error != null) {
-                        logger.warn("Display preferences unavailable for {}; use /display status to retry", uuid, error);
-                    } else {
-                        current.preferences = value;
-                        markDirty(uuid);
-                    }
-                }));
-    }
-
-    private void enqueue(Runnable completion) {
-        if (!closed) {
-            completions.add(completion);
-            if (closed) {
-                completions.clear();
-            }
-        }
+        settings.end(uuid);
     }
 
     void update() {
         long started = System.nanoTime();
-        for (Runnable completion; (completion = completions.poll()) != null;) {
-            completion.run();
-        }
         Set<UUID> changed = new HashSet<>();
         dirty.removeIf(uuid -> { changed.add(uuid); return true; });
         int online = server.getOnlinePlayers().size();
@@ -229,10 +159,6 @@ public final class DisplayManager implements Listener, AutoCloseable {
         for (Viewer viewer : viewers.values()) {
             UUID uuid = viewer.player.getUniqueId();
             boolean changedProfile = changed.contains(uuid);
-            if (viewer.preferences == null && !viewer.loading && !viewer.loadAttempted) {
-                viewer.loadAttempted = true;
-                load(viewer);
-            }
             render(viewer, online, changedProfile);
         }
         tick += 5;
@@ -241,12 +167,16 @@ public final class DisplayManager implements Listener, AutoCloseable {
 
     private void render(Viewer viewer, int online, boolean changed) {
         UUID uuid = viewer.player.getUniqueId();
-        if (!config.enabled() || viewer.preferences == null || suppressed.contains(uuid)) {
+        var state = settings.state(uuid);
+        var preference = settings.cached(uuid).orElse(null);
+        if (!config.enabled() || preference == null
+                || (state != PlayerSettingsService.State.READY && state != PlayerSettingsService.State.SAVING)
+                || suppressed.contains(uuid)) {
             release(viewer);
             return;
         }
         var values = PlaceholderResolver.values(sessions.get(uuid).orElse(null), viewer.player.getName(), online, config.server());
-        if (config.bossbarEnabled() && viewer.preferences.bossbar()) {
+        if (config.bossbarEnabled() && preference.bossbarVisible()) {
             if (viewer.bar == null || changed || tick - viewer.lastBoss >= config.bossbarTicks()) {
                 Component title = config.messages().get(bossFrame).render(values);
                 if (viewer.bar == null) {
@@ -262,7 +192,7 @@ public final class DisplayManager implements Listener, AutoCloseable {
             viewer.bar = null;
         }
 
-        if (config.scoreboardEnabled() && viewer.preferences.scoreboard()) {
+        if (config.scoreboardEnabled() && preference.scoreboardVisible()) {
             if (viewer.board == null) {
                 viewer.previous = viewer.player.getScoreboard();
                 viewer.board = server.getScoreboardManager().getNewScoreboard();
@@ -326,19 +256,14 @@ public final class DisplayManager implements Listener, AutoCloseable {
             task = null;
         }
         viewers.values().forEach(this::release);
+        viewers.keySet().forEach(settings::end);
         viewers.clear();
         dirty.clear();
         suppressed.clear();
-        completions.clear();
     }
 
     private static final class Viewer {
         final Player player;
-        final long token;
-        DisplayPreferences preferences;
-        boolean loading;
-        boolean loadAttempted;
-        boolean saving;
         BossBar bar;
         Scoreboard previous;
         Scoreboard board;
@@ -347,9 +272,8 @@ public final class DisplayManager implements Listener, AutoCloseable {
         long lastStats = -72000;
         long lastBoss = -72000;
 
-        Viewer(Player player, long token) {
+        Viewer(Player player) {
             this.player = player;
-            this.token = token;
         }
     }
 }

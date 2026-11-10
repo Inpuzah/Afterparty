@@ -1,6 +1,6 @@
 # Architecture
 
-ClubCore v0.2 provides profiles, XP, Club Coins and lobby displays for a single
+ClubCore v0.3 adds unified player settings to profiles, XP, Club Coins and lobby displays for a single
 Paper 26.3 server.
 
 ## Layers
@@ -30,6 +30,7 @@ PlayerSessionListener / ProfileCommand / BalanceCommand / ClubAdminCommand
 | `listener` | Join/quit lifecycle. |
 | `command` | Cached `/profile`, async authoritative `/balance`, permission-controlled `/clubadmin`. |
 | `display` | Shared animation task, per-viewer bossbar/sidebar, cached placeholders, validated config and async persistent preferences. |
+| `settings` | Immutable choices, one settings-session cache, async mutation API and `/settings` GUI. Reuses the V3 display repository/worker. |
 
 ## Threading rules
 
@@ -91,10 +92,31 @@ file or network IO occurs in this loop. Sidebar entries use stable internal
 identities and Paper component score names, so duplicate/blank text rows work.
 
 Preferences load/save asynchronously using V3. Displays stay hidden until the
-saved flags are known. Each viewer association has a token to reject completions
-after quit/rejoin. ClubCore explicitly owns the lobby sidebar, with a suppression
+saved flags are known. Settings-entry identity rejects completions after
+quit/rejoin, while menus also check the profile login token and exact inventory.
+ClubCore explicitly owns the lobby sidebar, with a suppression
 API for future games and safe restoration on cleanup. See [displays.md](displays.md)
 for ownership, command, reload and deployment contracts.
+
+## Unified settings
+
+`/display`, `/settings` and plugin callers use `PlayerSettingsService`; the
+display manager has no second preference cache. Its compatibility toggle methods
+delegate to this service. The service wraps `DisplayPreferenceService` and
+`JdbcDisplayPreferenceRepository` without changing V3 or adding another worker.
+Only one mutation per active player settings session is accepted at a time.
+
+Saves retain confirmed choices while pending. Commit publishes a new immutable
+snapshot; failure logs an uncertain outcome and starts an ordered authoritative
+read before accepting another write. Caller timeouts/cancellation do not cancel
+accepted persistence. Old-session work can complete in storage but cannot update
+a replacement settings entry or menu.
+
+Observers only mark displays dirty and enqueue main-thread menu refreshes.
+There is no menu timer or animation-time SQL. The holder, player object, profile
+token and current top inventory all have to match before deferred clicks or
+callbacks can alter UI. Menus close before settings workers drain on disable.
+See [settings.md](settings.md) and the [V3 reuse decision](decisions/0002-unified-player-settings.md).
 
 ## Error categories
 
