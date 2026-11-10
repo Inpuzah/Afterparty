@@ -40,8 +40,8 @@ public final class DisplayText {
             throw new ConfigException("Malformed display placeholder");
         }
         try {
-            render(Map.of("level", "100", "coins", "9,223,372,036,854,775,807", "xp", "9,223,372,036,854,775,807",
-                    "online", "100000", "server", "s".repeat(32), "username", "u".repeat(16)));
+            render(Map.of("level", "2,147,483,647", "coins", "9,223,372,036,854,775,807", "xp", "9,223,372,036,854,775,807",
+                    "online", "2,147,483,647", "server", "s".repeat(32), "username", "u".repeat(16)));
         } catch (IllegalArgumentException | ParsingException e) {
             throw new ConfigException("Invalid display text: " + e.getMessage());
         }
